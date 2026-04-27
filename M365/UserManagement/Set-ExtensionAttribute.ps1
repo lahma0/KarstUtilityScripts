@@ -43,10 +43,9 @@ begin {
     # Connect to Microsoft Graph
     Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
     try {
-        Connect-MgGraph -Scopes "User.ReadWrite.All" -ErrorAction Stop
+        Connect-MgGraph -NoWelcome -Scopes "User.ReadWrite.All" -ErrorAction Stop
         Write-Host "Successfully connected to Microsoft Graph." -ForegroundColor Green
-    }
-    catch {
+    } catch {
         Write-Error "Failed to connect to Microsoft Graph: $_"
         exit 1
     }
@@ -81,8 +80,7 @@ process {
                 Status    = "Success"
                 Error     = $null
             }
-        }
-        catch {
+        } catch {
             Write-Host "✗ Failed to set $attributeName for $user" -ForegroundColor Red
             Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red
 

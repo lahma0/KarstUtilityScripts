@@ -10,6 +10,11 @@ Mail, and UserPrincipalName.
 If no direct match is found for a name, the script retries with normalized values by removing
 common qualifiers/particles and special characters.
 
+By its nature, this script is designed to be forgiving and return potential matches even if the 
+name formatting is inconsistent. Many false matches may be returned, especially for common names, 
+so results should be reviewed carefully. However, it provides a useful starting point for 
+identifying potential user accounts.
+
 For each match, the script returns core account details and attempts to identify whether the
 account is a shared mailbox (when Exchange mailbox cmdlets are available).
 
@@ -106,8 +111,7 @@ function Test-NameMatch {
         $display = Convert-ToComparableString -InputText ([string]$User.DisplayName) -QualifierTokens $qualifierTokens
         $mail = Convert-ToComparableString -InputText ([string]$User.Mail) -QualifierTokens $qualifierTokens
         $upn = Convert-ToComparableString -InputText ([string]$User.UserPrincipalName) -QualifierTokens $qualifierTokens
-    }
-    else {
+    } else {
         $first = Convert-ToComparableString -InputText $FirstName
         $last = Convert-ToComparableString -InputText $LastName
 
@@ -153,8 +157,7 @@ function Initialize-SharedMailboxLookupState {
         try {
             Write-Host "Installing ExchangeOnlineManagement module for current user..." -ForegroundColor Cyan
             Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-        }
-        catch {
+        } catch {
             return [PSCustomObject]@{
                 Available   = $false
                 CommandName = $null
@@ -165,8 +168,7 @@ function Initialize-SharedMailboxLookupState {
 
     try {
         Import-Module ExchangeOnlineManagement -ErrorAction Stop | Out-Null
-    }
-    catch {
+    } catch {
         return [PSCustomObject]@{
             Available   = $false
             CommandName = $null
@@ -187,8 +189,7 @@ function Initialize-SharedMailboxLookupState {
     try {
         Get-EXOMailbox -ResultSize 1 -ErrorAction Stop | Out-Null
         $needsConnect = $false
-    }
-    catch {
+    } catch {
         # Any failure here is treated as "not currently connected" and triggers auth flow.
         $needsConnect = $true
     }
@@ -207,8 +208,7 @@ function Initialize-SharedMailboxLookupState {
             Write-Host "Connecting to Exchange Online (default auth)..." -ForegroundColor Cyan
             Connect-ExchangeOnline -ShowBanner:$false
             Get-EXOMailbox -ResultSize 1 -ErrorAction Stop | Out-Null
-        }
-        catch {
+        } catch {
             return [PSCustomObject]@{
                 Available   = $false
                 CommandName = $null
@@ -248,8 +248,7 @@ function Get-SharedMailboxInfo {
     if (-not $LookupState.Available) {
         $reasonSuffix = if ($LookupState.PSObject.Properties.Name -contains "Reason" -and -not [string]::IsNullOrWhiteSpace([string]$LookupState.Reason)) {
             ": $($LookupState.Reason)"
-        }
-        else {
+        } else {
             ""
         }
 
@@ -281,8 +280,7 @@ function Get-SharedMailboxInfo {
         }
         $Cache[$Identity] = $legacyResult
         return $legacyResult
-    }
-    catch {
+    } catch {
         $result = [PSCustomObject]@{
             IsSharedMailbox     = $false
             SharedMailboxStatus = "Unknown: $($_.Exception.Message)"
@@ -297,8 +295,7 @@ $sharedMailboxCache = @{}
 
 if ($sharedMailboxLookupState.Available) {
     Write-Host "Exchange mailbox lookup available via $($sharedMailboxLookupState.CommandName). Shared mailbox detection enabled." -ForegroundColor Cyan
-}
-else {
+} else {
     Write-Host "Exchange mailbox lookup unavailable ($($sharedMailboxLookupState.Reason)). Shared mailbox status will be marked as Unknown." -ForegroundColor DarkYellow
 }
 
@@ -371,11 +368,9 @@ foreach ($employee in $employeesToSearch) {
     foreach ($user in $allMatches) {
         $identityForMailboxCheck = if (-not [string]::IsNullOrWhiteSpace([string]$user.UserPrincipalName)) {
             [string]$user.UserPrincipalName
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace([string]$user.Mail)) {
+        } elseif (-not [string]::IsNullOrWhiteSpace([string]$user.Mail)) {
             [string]$user.Mail
-        }
-        else {
+        } else {
             [string]$user.Id
         }
 
@@ -413,8 +408,7 @@ Write-Host "=====================================" -ForegroundColor Cyan
 
 if ($matchedUsers.Count -gt 0) {
     $matchedUsers | Format-Table ProvidedName, DisplayName, UserPrincipalName, Mail, Surname, GivenName, CreatedDateTime, Department, JobTitle, AccountEnabled, IsSharedMailbox, SharedMailboxStatus -AutoSize
-}
-else {
+} else {
     Write-Host "No accounts matched the provided names." -ForegroundColor Yellow
 }
 
