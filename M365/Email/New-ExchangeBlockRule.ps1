@@ -397,7 +397,7 @@ function Convert-ToTransportRuleDateString {
         return $null
     }
 
-    $parsed = $null
+    [DateTime]$parsed = [DateTime]::MinValue
     $includesTime = $false
 
     if ($Value -is [DateTime]) {
@@ -405,7 +405,7 @@ function Convert-ToTransportRuleDateString {
         $includesTime = $parsed.TimeOfDay.TotalSeconds -ne 0
     } else {
         $candidate = [string]$Value
-        $acceptedFormats = @(
+        [string[]]$acceptedFormats = @(
             "MM/dd/yyyy",
             "M/d/yyyy",
             "MM/dd/yyyy h:mm tt",
