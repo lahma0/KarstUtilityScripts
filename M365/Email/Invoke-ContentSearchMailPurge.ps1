@@ -81,7 +81,33 @@ filtered.
 .PARAMETER SearchName
 Name to use for the compliance search and purge action created during this operation.
 
-If not provided, a name is auto-generated using the current timestamp.
+If not provided, a name is auto-generated using the current timestamp in the format 
+'PhishingRemoval-yyyyMMdd-HHmmss'.
+
+If a name is provided and a compliance search with that name already exists in Microsoft 
+Purview, the script will present an interactive menu with the following options:
+
+  1 - Overwrite: Removes the existing compliance search (and its associated purge action 
+      if one exists) and proceeds to create a new search using the parameters supplied to 
+      the current script invocation.
+
+  2 - Show existing search results: Displays the item count, size, and per-mailbox 
+      breakdown from the existing search without creating or deleting anything. If the 
+      search is still running, the script waits for it to complete first. Exits after 
+      displaying results.
+
+  3 - Re-run the search: Restarts the existing compliance search using its stored KQL 
+      query (the parameters from when it was originally created). Waits for it to 
+      complete, then continues with the normal purge flow using the current PurgeType.
+
+  4 - Run a purge on the existing search results: Skips directly to the purge step 
+      using the results already stored in the existing search. Waits for the search to 
+      complete if it is still running. If PurgeType is set to None, you will be prompted 
+      to choose SoftDelete or HardDelete before the purge proceeds.
+
+  5 - Delete the existing search and exit: Removes the compliance search and its 
+      associated purge action from Microsoft Purview and exits the script without 
+      performing any further action.
 
 [Optional - Defaults to auto-generated name]
 
@@ -92,6 +118,9 @@ Controls how matched messages are deleted. Valid values are:
   by the user or an administrator within the retention period. [Default]
 - HardDelete: Permanently deletes messages. Messages cannot be recovered after a hard 
   delete unless they are on hold or within a retention policy.
+- None: Performs the content search only without executing a purge.
+
+Note: All purge actions show which mailboxes and messages match the search parameters. Even when choosing 'SoftDelete' or 'HardDelete', the script prompts for confirmation before proceeding with deletion, and displays the search results so you can review what will be deleted. This allows you to validate the search criteria and ensure it is targeting the intended messages before committing to a purge.
 
 In most cases, SoftDelete is preferred as it is recoverable if the search criteria 
 accidentally matched legitimate messages.
@@ -111,25 +140,31 @@ operation completes. Useful for auditing or review.
 [Optional - Defaults to $false (search and purge action are deleted after completion)]
 
 .EXAMPLE
-.\Remove-EmailFromAllMailboxes.ps1
+.\Invoke-ContentSearchMailPurge.ps1
 
 Runs interactively and prompts for required values.
 
 .EXAMPLE
-.\Remove-EmailFromAllMailboxes.ps1 -From "attacker@evil.com" -Subject "Verify your account"
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -Subject "Verify your account"
 
 Removes all emails from the specified sender with the specified subject.
 
 .EXAMPLE
-.\Remove-EmailFromAllMailboxes.ps1 -From "attacker@evil.com" -StartDate "04/25/2026" -MatchTerms @("click here", "verify now")
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -StartDate "04/25/2026" -MatchTerms @("click here", "verify now")
 
 Removes all emails from the specified sender sent on or after the given date that contain 
 any of the given terms in the body.
 
 .EXAMPLE
-.\Remove-EmailFromAllMailboxes.ps1 -From "attacker@evil.com" -PurgeType HardDelete -SkipConfirmation:$true
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -PurgeType HardDelete -SkipConfirmation:$true
 
 Permanently deletes matched emails without prompting for confirmation.
+
+.EXAMPLE
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -Subject "Verify your account" -PurgeType None
+
+Runs the content search and displays which mailboxes contain matching messages, but does 
+not delete anything. Use this to validate search criteria before committing to a purge.
 
 .NOTES
 Requires the ExchangeOnlineManagement module for connection handling.
@@ -163,7 +198,7 @@ param (
     [string]$SearchName,
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("SoftDelete", "HardDelete")]
+    [ValidateSet("SoftDelete", "HardDelete", "None")]
     [string]$PurgeType = "SoftDelete",
 
     [Parameter(Mandatory = $false)]
@@ -441,6 +476,109 @@ function Wait-ForCompliancePurge {
     }
 }
 
+function Show-SearchResults {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Search,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SearchName
+    )
+
+    $itemSizeMB = [math]::Round($Search.Size / 1MB, 2)
+
+    $matchedMailboxes = @()
+    try {
+        # SearchStatistics may be a JSON string or already a deserialized object depending
+        # on the ExchangeOnlineManagement module version — handle both cases.
+        $stats = $Search.SearchStatistics
+        if ($stats -is [string]) {
+            $stats = $stats | ConvertFrom-Json
+        }
+
+        if ($null -ne $stats) {
+            # Structure varies by module version:
+            #   v3.x: stats object has ExchangeBinding directly (no Component wrapper)
+            #   Other: stats is an array where items have a Component property
+            $binding = $null
+            if ($null -ne $stats.ExchangeBinding) {
+                $binding = $stats.ExchangeBinding
+                if ($binding -is [string]) {
+                    $binding = $binding | ConvertFrom-Json
+                }
+            } else {
+                $exchangeStats = @($stats) | Where-Object { $_.Component -eq 'Exchange' } | Select-Object -First 1
+                if ($null -ne $exchangeStats) {
+                    $binding = $exchangeStats.ExchangeBinding
+                    if ($binding -is [string]) {
+                        $binding = $binding | ConvertFrom-Json
+                    }
+                }
+            }
+
+            if ($null -ne $binding) {
+                # Property name differs across module versions ('Sources' or 'Locations')
+                $sources = if ($null -ne $binding.Sources) { $binding.Sources }
+                elseif ($null -ne $binding.Locations) { $binding.Locations }
+                else { $null }
+
+                if ($null -ne $sources) {
+                    # Item count property differs across versions: 'ContentItems' or 'Items'
+                    $matchedMailboxes = @($sources | Where-Object { ($_.ContentItems -gt 0) -or ($_.Items -gt 0) })
+                }
+            }
+        }
+    } catch {
+        # SearchStatistics could not be parsed; per-mailbox details will not be shown
+    }
+
+    Write-Host "`n✓ Compliance search completed." -ForegroundColor Green
+    Write-Host "`nSearch Results:" -ForegroundColor Cyan
+    Write-Host "  Search Name : $SearchName" -ForegroundColor White
+    Write-Host "  KQL Query   : $($Search.ContentMatchQuery)" -ForegroundColor White
+    Write-Host "  Items Found : $($Search.Items)" -ForegroundColor White
+    Write-Host "  Total Size  : $itemSizeMB MB" -ForegroundColor White
+
+    if ($matchedMailboxes.Count -gt 0) {
+        Write-Host "  Mailboxes   : $($matchedMailboxes.Count) mailbox(es) with matching messages" -ForegroundColor White
+        foreach ($mb in ($matchedMailboxes | Sort-Object Name)) {
+            $itemCount = if ($null -ne $mb.ContentItems) { $mb.ContentItems } else { $mb.Items }
+            $itemWord = if ($itemCount -eq 1) { 'item' } else { 'items' }
+            Write-Host "    - $($mb.Name) ($itemCount $itemWord)" -ForegroundColor White
+        }
+    } elseif ($Search.Items -gt 0) {
+        Write-Host "  Mailboxes   : (per-mailbox details unavailable)" -ForegroundColor DarkGray
+    }
+}
+
+function Read-ExistingSearchChoice {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SearchName
+    )
+
+    Write-Host "`n⚠ A compliance search with the name '${SearchName}' already exists." -ForegroundColor Yellow
+    Write-Host "What would you like to do?`n" -ForegroundColor Yellow
+    Write-Host "  1 - Overwrite: delete the existing search and create a new one" -ForegroundColor White
+    Write-Host "  2 - Show existing search results" -ForegroundColor White
+    Write-Host "  3 - Re-run the search using the existing parameters" -ForegroundColor White
+    Write-Host "  4 - Run a purge on the existing search results" -ForegroundColor White
+    Write-Host "  5 - Delete the existing search and exit" -ForegroundColor White
+    Write-Host ""
+
+    while ($true) {
+        $choice = (Read-Host "Enter your choice (1-5)").Trim()
+        switch ($choice) {
+            '1' { return 'Overwrite' }
+            '2' { return 'ShowResults' }
+            '3' { return 'Rerun' }
+            '4' { return 'Purge' }
+            '5' { return 'Delete' }
+            default { Write-Host "Please enter a number between 1 and 5." -ForegroundColor Yellow }
+        }
+    }
+}
+
 # ─── Prerequisite: Module check ───────────────────────────────────────────────
 
 Initialize-ExchangeOnlineModule
@@ -449,75 +587,123 @@ Initialize-ExchangeOnlineModule
 
 Initialize-ComplianceCenterConnection
 
-# ─── Validate email parameters ────────────────────────────────────────────────
+# ─── Generate search name ─────────────────────────────────────────────────────
 
-if (-not [string]::IsNullOrWhiteSpace($From)) {
-    if (-not (Test-ValidEmail $From)) {
-        Write-Host "✗ Invalid From email address: '$From'. Exiting." -ForegroundColor Red
-        exit 1
+$searchNameProvided = -not [string]::IsNullOrWhiteSpace($SearchName)
+if (-not $searchNameProvided) {
+    $timestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+    $SearchName = "PhishingRemoval-$timestamp"
+}
+
+$purgeActionName = "${SearchName}_Purge"
+
+# ─── Handle existing search ───────────────────────────────────────────────────
+
+$existingSearch = Get-ComplianceSearch -Identity $SearchName -ErrorAction SilentlyContinue
+$completedSearch = $null
+$skipNewSearch = $false
+
+if ($existingSearch) {
+    if ($searchNameProvided) {
+        $existingChoice = Read-ExistingSearchChoice -SearchName $SearchName
+
+        switch ($existingChoice) {
+            'Overwrite' {
+                $existingAction = Get-ComplianceSearchAction -Identity $purgeActionName -ErrorAction SilentlyContinue
+                if ($existingAction) {
+                    Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false
+                    Write-Host "🛈 Existing purge action removed." -ForegroundColor Cyan
+                }
+                Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
+                Write-Host "🛈 Existing compliance search removed." -ForegroundColor Cyan
+            }
+            'ShowResults' {
+                $terminalStatuses = @("Completed", "Failed", "Stopped")
+                if ($terminalStatuses -notcontains $existingSearch.Status) {
+                    Write-Host "`n🛈 Search is currently '$($existingSearch.Status)'. Waiting for completion..." -ForegroundColor Cyan
+                    $existingSearch = Wait-ForComplianceSearch -SearchName $SearchName
+                }
+                if ($existingSearch.Status -ne "Completed") {
+                    Write-Host "✗ Search status is '$($existingSearch.Status)'. Cannot display results. Exiting." -ForegroundColor Red
+                    exit 1
+                }
+                Show-SearchResults -Search $existingSearch -SearchName $SearchName
+                exit 0
+            }
+            'Rerun' {
+                Write-Host "`n🛈 Restarting compliance search '$SearchName' using its existing parameters..." -ForegroundColor Cyan
+                Start-ComplianceSearch -Identity $SearchName -Force -ErrorAction Stop
+                $completedSearch = Wait-ForComplianceSearch -SearchName $SearchName
+                if ($completedSearch.Status -ne "Completed") {
+                    Write-Host "✗ Compliance search ended with status: $($completedSearch.Status). Exiting." -ForegroundColor Red
+                    exit 1
+                }
+                $skipNewSearch = $true
+            }
+            'Purge' {
+                $terminalStatuses = @("Completed", "Failed", "Stopped")
+                if ($terminalStatuses -notcontains $existingSearch.Status) {
+                    Write-Host "`n⚠ Search is currently '$($existingSearch.Status)'. Waiting for completion before purging..." -ForegroundColor Yellow
+                    $existingSearch = Wait-ForComplianceSearch -SearchName $SearchName
+                }
+                if ($existingSearch.Status -ne "Completed") {
+                    Write-Host "✗ Search status is '$($existingSearch.Status)'. Cannot purge. Exiting." -ForegroundColor Red
+                    exit 1
+                }
+                $completedSearch = $existingSearch
+                $skipNewSearch = $true
+                if ($PurgeType -eq "None") {
+                    Write-Host "`n🛈 PurgeType is set to None. Select a purge type for this operation:" -ForegroundColor Yellow
+                    Write-Host "  1 - SoftDelete (moves to Recoverable Items, recoverable)" -ForegroundColor White
+                    Write-Host "  2 - HardDelete (permanently deleted, unrecoverable)" -ForegroundColor White
+                    Write-Host ""
+                    while ($true) {
+                        $purgeTypeChoice = (Read-Host "Enter your choice (1-2)").Trim()
+                        if ($purgeTypeChoice -eq '1') { $PurgeType = "SoftDelete"; break }
+                        elseif ($purgeTypeChoice -eq '2') { $PurgeType = "HardDelete"; break }
+                        else { Write-Host "Please enter 1 or 2." -ForegroundColor Yellow }
+                    }
+                }
+            }
+            'Delete' {
+                $existingAction = Get-ComplianceSearchAction -Identity $purgeActionName -ErrorAction SilentlyContinue
+                if ($existingAction) {
+                    Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false
+                    Write-Host "🛈 Purge action removed." -ForegroundColor Cyan
+                }
+                Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
+                Write-Host "✓ Compliance search '$SearchName' deleted successfully." -ForegroundColor Green
+                exit 0
+            }
+        }
+    } else {
+        # Auto-generated name collision — silently remove (this should never happen with timestamps)
+        $existingAction = Get-ComplianceSearchAction -Identity $purgeActionName -ErrorAction SilentlyContinue
+        if ($existingAction) {
+            Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false
+        }
+        Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
     }
 }
 
-if (-not [string]::IsNullOrWhiteSpace($To)) {
-    if (-not (Test-ValidEmail $To)) {
-        Write-Host "✗ Invalid To email address: '$To'. Exiting." -ForegroundColor Red
-        exit 1
-    }
-}
+if (-not $skipNewSearch) {
+    # ─── Validate email parameters ────────────────────────────────────────────
 
-# ─── Ensure at least one search parameter is provided ─────────────────────────
-
-$hasAnyFilter = (
-    (-not [string]::IsNullOrWhiteSpace($From)) -or
-    (-not [string]::IsNullOrWhiteSpace($To)) -or
-    (-not [string]::IsNullOrWhiteSpace($Subject)) -or
-    ($MatchTerms -and ($MatchTerms | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) -or
-    ($null -ne $StartDate) -or
-    ($null -ne $EndDate) -or
-    ($null -ne $HasAttachment)
-)
-
-while (-not $hasAnyFilter) {
-    Write-Host "`n⚠ At least one search parameter (From, To, Subject, MatchTerms, StartDate, EndDate, or HasAttachment) must be provided." -ForegroundColor Yellow
-    Write-Host "Please enter search criteria below. Leave a field blank to skip it.`n" -ForegroundColor Yellow
-
-    $inputFrom = Read-Host "From (sender email address)"
-    if (-not [string]::IsNullOrWhiteSpace($inputFrom)) {
-        if (-not (Test-ValidEmail $inputFrom.Trim())) {
-            Write-Host "✗ Invalid From email address. Skipping." -ForegroundColor Yellow
-        } else {
-            $From = $inputFrom.Trim()
+    if (-not [string]::IsNullOrWhiteSpace($From)) {
+        if (-not (Test-ValidEmail $From)) {
+            Write-Host "✗ Invalid From email address: '$From'. Exiting." -ForegroundColor Red
+            exit 1
         }
     }
 
-    $inputTo = Read-Host "To (recipient email address)"
-    if (-not [string]::IsNullOrWhiteSpace($inputTo)) {
-        if (-not (Test-ValidEmail $inputTo.Trim())) {
-            Write-Host "✗ Invalid To email address. Skipping." -ForegroundColor Yellow
-        } else {
-            $To = $inputTo.Trim()
+    if (-not [string]::IsNullOrWhiteSpace($To)) {
+        if (-not (Test-ValidEmail $To)) {
+            Write-Host "✗ Invalid To email address: '$To'. Exiting." -ForegroundColor Red
+            exit 1
         }
     }
 
-    $inputSubject = Read-Host "Subject (partial match supported)"
-    if (-not [string]::IsNullOrWhiteSpace($inputSubject)) {
-        $Subject = $inputSubject.Trim()
-    }
-
-    $inputTerms = Read-Host "Body search terms (comma-separated)"
-    if (-not [string]::IsNullOrWhiteSpace($inputTerms)) {
-        $MatchTerms = $inputTerms.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-    }
-
-    $inputStart = Read-Host "Start date (MM/dd/yyyy or MM/dd/yyyy h:mm tt, leave blank to skip)"
-    if (-not [string]::IsNullOrWhiteSpace($inputStart)) {
-        $StartDate = $inputStart.Trim()
-    }
-
-    $inputEnd = Read-Host "End date (MM/dd/yyyy or MM/dd/yyyy h:mm tt, leave blank to skip)"
-    if (-not [string]::IsNullOrWhiteSpace($inputEnd)) {
-        $EndDate = $inputEnd.Trim()
-    }
+    # ─── Ensure at least one search parameter is provided ─────────────────────
 
     $hasAnyFilter = (
         (-not [string]::IsNullOrWhiteSpace($From)) -or
@@ -528,83 +714,125 @@ while (-not $hasAnyFilter) {
         ($null -ne $EndDate) -or
         ($null -ne $HasAttachment)
     )
-}
 
-# ─── Parse dates ──────────────────────────────────────────────────────────────
+    while (-not $hasAnyFilter) {
+        Write-Host "`n⚠ At least one search parameter (From, To, Subject, MatchTerms, StartDate, EndDate, or HasAttachment) must be provided." -ForegroundColor Yellow
+        Write-Host "Please enter search criteria below. Leave a field blank to skip it.`n" -ForegroundColor Yellow
 
-$startDateKql = Convert-ToKqlDateString -Value $StartDate -ParameterName "StartDate"
-$endDateKql = Convert-ToKqlDateString -Value $EndDate   -ParameterName "EndDate"
-
-# ─── Build KQL query ──────────────────────────────────────────────────────────
-
-$kqlQuery = Build-KqlQuery `
-    -From $From `
-    -To $To `
-    -Subject $Subject `
-    -MatchTerms $MatchTerms `
-    -StartDateKql $startDateKql `
-    -EndDateKql $endDateKql `
-    -HasAttachment $HasAttachment
-
-Write-Host "`n🛈 KQL Query: $kqlQuery" -ForegroundColor Cyan
-
-# ─── Generate search name ─────────────────────────────────────────────────────
-
-if ([string]::IsNullOrWhiteSpace($SearchName)) {
-    $timestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
-    $SearchName = "PhishingRemoval-$timestamp"
-}
-
-$purgeActionName = "${SearchName}_Purge"
-
-# ─── Check for existing search with same name ─────────────────────────────────
-
-$existingSearch = Get-ComplianceSearch -Identity $SearchName -ErrorAction SilentlyContinue
-if ($existingSearch) {
-    Write-Host "`n✗ A compliance search with the name '${SearchName}' already exists!" -ForegroundColor Red
-    if (Read-YesNoResponse -Prompt "Do you want to remove the existing search and recreate it?" -DefaultValue $false) {
-        # Remove purge action if it exists
-        $existingAction = Get-ComplianceSearchAction -Identity $purgeActionName -ErrorAction SilentlyContinue
-        if ($existingAction) {
-            Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false
-            Write-Host "🛈 Existing purge action removed." -ForegroundColor Cyan
+        $inputFrom = Read-Host "From (sender email address)"
+        if (-not [string]::IsNullOrWhiteSpace($inputFrom)) {
+            if (-not (Test-ValidEmail $inputFrom.Trim())) {
+                Write-Host "✗ Invalid From email address. Skipping." -ForegroundColor Yellow
+            } else {
+                $From = $inputFrom.Trim()
+            }
         }
-        Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
-        Write-Host "🛈 Existing compliance search removed." -ForegroundColor Cyan
-    } else {
-        Write-Host "✗ Operation cancelled due to existing compliance search with identical name." -ForegroundColor Red
-        exit
+
+        $inputTo = Read-Host "To (recipient email address)"
+        if (-not [string]::IsNullOrWhiteSpace($inputTo)) {
+            if (-not (Test-ValidEmail $inputTo.Trim())) {
+                Write-Host "✗ Invalid To email address. Skipping." -ForegroundColor Yellow
+            } else {
+                $To = $inputTo.Trim()
+            }
+        }
+
+        $inputSubject = Read-Host "Subject (partial match supported)"
+        if (-not [string]::IsNullOrWhiteSpace($inputSubject)) {
+            $Subject = $inputSubject.Trim()
+        }
+
+        $inputTerms = Read-Host "Body search terms (comma-separated)"
+        if (-not [string]::IsNullOrWhiteSpace($inputTerms)) {
+            $MatchTerms = $inputTerms.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        }
+
+        $inputStart = Read-Host "Start date (MM/dd/yyyy or MM/dd/yyyy h:mm tt, leave blank to skip)"
+        if (-not [string]::IsNullOrWhiteSpace($inputStart)) {
+            $StartDate = $inputStart.Trim()
+        }
+
+        $inputEnd = Read-Host "End date (MM/dd/yyyy or MM/dd/yyyy h:mm tt, leave blank to skip)"
+        if (-not [string]::IsNullOrWhiteSpace($inputEnd)) {
+            $EndDate = $inputEnd.Trim()
+        }
+
+        $hasAnyFilter = (
+            (-not [string]::IsNullOrWhiteSpace($From)) -or
+            (-not [string]::IsNullOrWhiteSpace($To)) -or
+            (-not [string]::IsNullOrWhiteSpace($Subject)) -or
+            ($MatchTerms -and ($MatchTerms | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) -or
+            ($null -ne $StartDate) -or
+            ($null -ne $EndDate) -or
+            ($null -ne $HasAttachment)
+        )
+    }
+
+    # ─── Parse dates ──────────────────────────────────────────────────────────
+
+    $startDateKql = Convert-ToKqlDateString -Value $StartDate -ParameterName "StartDate"
+    $endDateKql = Convert-ToKqlDateString -Value $EndDate   -ParameterName "EndDate"
+
+    # ─── Build KQL query ──────────────────────────────────────────────────────
+
+    $kqlQuery = Build-KqlQuery `
+        -From $From `
+        -To $To `
+        -Subject $Subject `
+        -MatchTerms $MatchTerms `
+        -StartDateKql $startDateKql `
+        -EndDateKql $endDateKql `
+        -HasAttachment $HasAttachment
+
+    Write-Host "`n🛈 KQL Query: $kqlQuery" -ForegroundColor Cyan
+
+    # ─── Create and run compliance search ─────────────────────────────────────
+
+    Write-Host "`nCreating compliance search '$SearchName'..." -ForegroundColor Cyan
+
+    New-ComplianceSearch `
+        -Name $SearchName `
+        -ExchangeLocation All `
+        -ContentMatchQuery $kqlQuery `
+        -ErrorAction Stop | Out-Null
+
+    Start-ComplianceSearch -Identity $SearchName -ErrorAction Stop
+
+    $completedSearch = Wait-ForComplianceSearch -SearchName $SearchName
+
+    if ($completedSearch.Status -ne "Completed") {
+        Write-Host "✗ Compliance search ended with status: $($completedSearch.Status). Exiting." -ForegroundColor Red
+        exit 1
     }
 }
 
-# ─── Create and run compliance search ────────────────────────────────────────
-
-Write-Host "`nCreating compliance search '$SearchName'..." -ForegroundColor Cyan
-
-New-ComplianceSearch `
-    -Name $SearchName `
-    -ExchangeLocation All `
-    -ContentMatchQuery $kqlQuery `
-    -ErrorAction Stop | Out-Null
-
-Start-ComplianceSearch -Identity $SearchName -ErrorAction Stop
-
-$completedSearch = Wait-ForComplianceSearch -SearchName $SearchName
-
-if ($completedSearch.Status -ne "Completed") {
-    Write-Host "✗ Compliance search ended with status: $($completedSearch.Status). Exiting." -ForegroundColor Red
-    exit 1
-}
+# ─── Show search results ──────────────────────────────────────────────────────
 
 $itemCount = $completedSearch.Items
-$itemSizeMB = [math]::Round($completedSearch.Size / 1MB, 2)
+Show-SearchResults -Search $completedSearch -SearchName $SearchName
 
-Write-Host "`n✓ Compliance search completed." -ForegroundColor Green
-Write-Host "`nSearch Results:" -ForegroundColor Cyan
-Write-Host "  Search Name : $SearchName" -ForegroundColor White
-Write-Host "  KQL Query   : $kqlQuery" -ForegroundColor White
-Write-Host "  Items Found : $itemCount" -ForegroundColor White
-Write-Host "  Total Size  : $itemSizeMB MB" -ForegroundColor White
+# ─── Handle PurgeType = None ──────────────────────────────────────────────────
+
+if ($PurgeType -eq "None") {
+    if ($itemCount -eq 0) {
+        Write-Host "`n🛈 No matching messages found." -ForegroundColor Cyan
+    } else {
+        Write-Host "`n🛈 PurgeType is set to None. The search is complete but no messages will be deleted." -ForegroundColor Cyan
+    }
+
+    if (-not $KeepSearch) {
+        if (Read-YesNoResponse -Prompt "Do you want to delete this compliance search from Microsoft Purview?" -DefaultValue $false) {
+            Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
+            Write-Host "🛈 Compliance search removed." -ForegroundColor Cyan
+        } else {
+            Write-Host "🛈 Compliance search retained in Microsoft Purview." -ForegroundColor Cyan
+        }
+    } else {
+        Write-Host "🛈 Compliance search retained in Microsoft Purview (KeepSearch = true)." -ForegroundColor Cyan
+    }
+
+    exit 0
+}
 
 if ($itemCount -eq 0) {
     Write-Host "`n🛈 No matching messages found. Nothing to delete." -ForegroundColor Cyan
@@ -661,7 +889,7 @@ Write-Host "`n✓✓✓ SUCCESS ✓✓✓" -ForegroundColor Green
 Write-Host "Purge action completed successfully!" -ForegroundColor Green
 Write-Host "`nPurge Details:" -ForegroundColor Cyan
 Write-Host "  Search Name : $SearchName" -ForegroundColor White
-Write-Host "  KQL Query   : $kqlQuery" -ForegroundColor White
+Write-Host "  KQL Query   : $($completedSearch.ContentMatchQuery)" -ForegroundColor White
 Write-Host "  Items Purged: $itemCount" -ForegroundColor White
 Write-Host "  Purge Type  : $PurgeType" -ForegroundColor White
 

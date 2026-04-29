@@ -26,6 +26,7 @@ KarstUtilityScripts/
     |-- Devices/
     |   `-- Get-IntuneLocalAdminPassword.ps1
     |-- Email/
+    |   |-- Invoke-ContentSearchMailPurge.ps1
     |   `-- New-ExchangeBlockRule.ps1
     `-- UserManagement/
         |-- Find-MatchingAccountsByNames.ps1
@@ -114,6 +115,68 @@ After passwords are retrieved, the script automatically copies the first returne
 ```
 
 ### M365 / Email
+
+#### `Invoke-ContentSearchMailPurge.ps1`
+
+Searches all Microsoft 365 user mailboxes for emails matching specified criteria using the Microsoft Purview Content Search feature, then optionally deletes them across the entire organization. Intended for responding to phishing or malicious email incidents where a harmful message must be removed before users can act on it.
+
+The script builds a KQL query from the provided filter parameters, creates and runs a compliance search, displays match results (including a per-mailbox breakdown of affected accounts), and — unless `PurgeType` is set to `None` — executes a compliance purge action to delete the matched messages.
+
+**Parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-From` | No\* | Sender email address to search for. |
+| `-To` | No\* | Recipient email address to search for. |
+| `-Subject` | No\* | Subject line to search for. Supports partial matches. |
+| `-MatchTerms` | No\* | One or more keywords/phrases to search for in the message body. Multiple terms are combined with OR logic. Accepts a string array: `@("term one", "term two")`. |
+| `-StartDate` | No\* | Only match messages sent on or after this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. |
+| `-EndDate` | No\* | Only match messages sent on or before this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. |
+| `-HasAttachment` | No\* | When `$true`, only match messages with attachments. When `$false`, only match messages without attachments. When omitted, attachment presence is not filtered. |
+| `-SearchName` | No | Name for the compliance search created in Microsoft Purview. If a search with this name already exists, an interactive menu is presented (see below). Defaults to an auto-generated timestamp-based name. |
+| `-PurgeType` | No | How to delete matched messages. `SoftDelete` moves messages to Recoverable Items (recoverable). `HardDelete` permanently deletes them. `None` runs the search only without deleting anything — useful for validating criteria before committing to a purge. Defaults to `SoftDelete`. |
+| `-SkipConfirmation` | No | When `$true`, skips the interactive confirmation prompt before purging. Defaults to `$false`. |
+| `-KeepSearch` | No | When `$true`, retains the compliance search and purge action in Microsoft Purview after the script completes. Defaults to `$false`. |
+
+\* At least one search parameter (`From`, `To`, `Subject`, `MatchTerms`, `StartDate`, `EndDate`, or `HasAttachment`) must be provided. If none are supplied via parameters, the script prompts interactively.
+
+**Existing Search Menu**
+
+When `-SearchName` is provided and a compliance search with that name already exists in Microsoft Purview, the script presents an interactive numbered menu:
+
+| Option | Action |
+|--------|--------|
+| 1 - Overwrite | Deletes the existing search (and purge action if present) and creates a new one using the current parameters. |
+| 2 - Show existing search results | Displays the item count, size, and per-mailbox breakdown from the existing search without making any changes. Exits after displaying results. |
+| 3 - Re-run the search | Restarts the existing search using its stored KQL query, waits for completion, then continues with the normal purge flow. |
+| 4 - Run a purge on existing results | Skips directly to the purge step using the results already in the existing search. If `PurgeType` is `None`, prompts for SoftDelete or HardDelete first. |
+| 5 - Delete and exit | Removes the compliance search and any associated purge action from Purview, then exits. |
+
+**Required Module:** `ExchangeOnlineManagement` (v3.9.0 or higher)
+
+**Required Permissions:** `Compliance Search` and `Search And Purge` roles in Microsoft Purview
+
+**Usage Examples**
+
+```powershell
+# Run interactively — script will prompt for all search criteria
+.\Invoke-ContentSearchMailPurge.ps1
+
+# Search-only (no purge) — review which mailboxes are affected before deleting
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -Subject "Verify your account" -PurgeType None
+
+# Search and soft-delete matching messages (default purge type)
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -Subject "Verify your account"
+
+# Search with date range and body keyword matching
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -StartDate "04/25/2026" -MatchTerms @("click here", "verify now")
+
+# Hard-delete without confirmation prompt (use with caution)
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -PurgeType HardDelete -SkipConfirmation:$true
+
+# Named search — re-run or purge later using the existing-search menu
+.\Invoke-ContentSearchMailPurge.ps1 -From "attacker@evil.com" -Subject "Verify your account" -SearchName "Phish-Apr29-EvilCom" -PurgeType None
+```
 
 #### `New-ExchangeBlockRule.ps1`
 
