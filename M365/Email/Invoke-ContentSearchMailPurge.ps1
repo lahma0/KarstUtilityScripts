@@ -59,6 +59,9 @@ Accepted inputs:
 - Short date string: MM/dd/yyyy (ex: 04/01/2026)
 - Short date/time string: MM/dd/yyyy h:mm tt (ex: 04/01/2026 8:00 AM)
 
+Note: Exchange stores all timestamps in UTC. The value you provide is treated as local time
+and automatically converted to UTC before the search query is sent to the server.
+
 [Optional]
 
 .PARAMETER EndDate
@@ -68,6 +71,9 @@ Accepted inputs:
 - DateTime value
 - Short date string: MM/dd/yyyy (ex: 04/28/2026)
 - Short date/time string: MM/dd/yyyy h:mm tt (ex: 04/28/2026 5:00 PM)
+
+Note: Exchange stores all timestamps in UTC. The value you provide is treated as local time
+and automatically converted to UTC before the search query is sent to the server.
 
 [Optional]
 
@@ -116,11 +122,18 @@ Controls how matched messages are deleted. Valid values are:
 
 - SoftDelete: Moves messages to the Recoverable Items folder, where they can be recovered 
   by the user or an administrator within the retention period. [Default]
+  Note: Because soft-deleted messages remain in the Recoverable Items folder, subsequent
+  content searches using the same KQL query will match and return them again. Use
+  HardDelete if you need the messages to be undetectable by future searches.
 - HardDelete: Permanently deletes messages. Messages cannot be recovered after a hard 
   delete unless they are on hold or within a retention policy.
 - None: Performs the content search only without executing a purge.
 
-Note: All purge actions show which mailboxes and messages match the search parameters. Even when choosing 'SoftDelete' or 'HardDelete', the script prompts for confirmation before proceeding with deletion, and displays the search results so you can review what will be deleted. This allows you to validate the search criteria and ensure it is targeting the intended messages before committing to a purge.
+Note: All purge actions show which mailboxes and messages match the search parameters. 
+Even when choosing 'SoftDelete' or 'HardDelete', the script prompts for confirmation 
+before proceeding with deletion, and displays the search results so you can review what 
+will be deleted. This allows you to validate the search criteria and ensure it is 
+targeting the intended messages before committing to a purge.
 
 In most cases, SoftDelete is preferred as it is recoverable if the search criteria 
 accidentally matched legitimate messages.
@@ -134,10 +147,11 @@ Useful for automated/scripted scenarios.
 [Optional - Defaults to $false]
 
 .PARAMETER KeepSearch
-When set to $true, does not delete the compliance search and purge action after the 
-operation completes. Useful for auditing or review.
+When specified, retains the compliance search and purge action in Microsoft Purview after the
+operation completes without prompting. Useful for auditing or review. When omitted, the script
+will ask whether to delete the search (default: Y).
 
-[Optional - Defaults to $false (search and purge action are deleted after completion)]
+[Optional - Switch parameter (omit to be prompted, specify to always retain)]
 
 .EXAMPLE
 .\Invoke-ContentSearchMailPurge.ps1
@@ -205,7 +219,7 @@ param (
     [bool]$SkipConfirmation = $false,
 
     [Parameter(Mandatory = $false)]
-    [bool]$KeepSearch = $false
+    [switch]$KeepSearch
 )
 
 function Read-YesNoResponse {
@@ -352,8 +366,11 @@ function Convert-ToKqlDateString {
         }
     }
 
+    # Exchange stores timestamps in UTC; convert local time to UTC before building the KQL string.
+    $utc = $parsed.ToUniversalTime()
+
     # KQL date format: yyyy-MM-ddTHH:mm:ss
-    return $parsed.ToString("yyyy-MM-ddTHH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture)
+    return $utc.ToString("yyyy-MM-ddTHH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Build-KqlQuery {
@@ -551,6 +568,144 @@ function Show-SearchResults {
     }
 }
 
+function Invoke-ComplianceSearchCleanup {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SearchName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PurgeActionName,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$KeepSearch
+    )
+
+    if ($KeepSearch) {
+        $retainMsg = if ($PurgeActionName) {
+            "`n🛈 Compliance search and purge action retained (KeepSearch specified)."
+        } else {
+            "🛈 Compliance search retained in Microsoft Purview (KeepSearch specified)."
+        }
+        Write-Host $retainMsg -ForegroundColor Cyan
+        return
+    }
+
+    $prompt = if ($PurgeActionName) {
+        "Do you want to delete this compliance search and purge action from Microsoft Purview?"
+    } else {
+        "Do you want to delete this compliance search from Microsoft Purview?"
+    }
+
+    if (Read-YesNoResponse -Prompt $prompt -DefaultValue $true) {
+        try {
+            if ($PurgeActionName) {
+                Remove-ComplianceSearchAction -Identity $PurgeActionName -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            Remove-ComplianceSearch -Identity $SearchName -Confirm:$false -ErrorAction SilentlyContinue
+            $removedMsg = if ($PurgeActionName) {
+                "`n🛈 Compliance search and purge action removed."
+            } else {
+                "🛈 Compliance search removed."
+            }
+            Write-Host $removedMsg -ForegroundColor Cyan
+        } catch {
+            Write-Host "`n⚠ Could not remove compliance search/action: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    } else {
+        $retainMsg = if ($PurgeActionName) {
+            "`n🛈 Compliance search and purge action retained in Microsoft Purview."
+        } else {
+            "🛈 Compliance search retained in Microsoft Purview."
+        }
+        Write-Host $retainMsg -ForegroundColor Cyan
+    }
+}
+
+function Remove-ComplianceSearchSafely {
+    # Deletes a compliance search and optionally its associated purge action. If either is
+    # still in progress, prompts the user to stop it, wait for it, or cancel the deletion.
+    # Returns $true if the search was deleted, $false if the user cancelled.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SearchName,
+
+        [Parameter(Mandatory = $false)]
+        [string]$PurgeActionName
+    )
+
+    $terminalStatuses = @("Completed", "Failed", "Stopped", "NotStarted")
+
+    $search = Get-ComplianceSearch -Identity $SearchName -ErrorAction SilentlyContinue
+    if ($null -eq $search) {
+        return $true
+    }
+
+    $action = $null
+    if ($PurgeActionName) {
+        $action = Get-ComplianceSearchAction -Identity $PurgeActionName -ErrorAction SilentlyContinue
+    }
+
+    $searchInProgress = $terminalStatuses -notcontains $search.Status
+    $actionInProgress = ($null -ne $action) -and ($terminalStatuses -notcontains $action.Status)
+
+    if ($searchInProgress -or $actionInProgress) {
+        if ($actionInProgress) {
+            Write-Host "`n⚠ The purge action '$PurgeActionName' is currently '$($action.Status)'." -ForegroundColor Yellow
+        }
+        if ($searchInProgress) {
+            Write-Host "`n⚠ The compliance search '$SearchName' is currently '$($search.Status)'." -ForegroundColor Yellow
+        }
+
+        Write-Host "`nHow would you like to proceed?`n" -ForegroundColor Yellow
+        Write-Host "  1 - Stop the search/action and delete it" -ForegroundColor White
+        Write-Host "  2 - Wait for the search/action to complete and then delete it" -ForegroundColor White
+        Write-Host "  3 - Cancel (do not delete)" -ForegroundColor White
+        Write-Host ""
+
+        $deleteChoice = $null
+        while ($null -eq $deleteChoice) {
+            $deleteChoiceInput = (Read-Host "Enter your choice (1-3)").Trim()
+            if ($deleteChoiceInput -in @('1', '2', '3')) {
+                $deleteChoice = $deleteChoiceInput
+            } else {
+                Write-Host "Please enter 1, 2, or 3." -ForegroundColor Yellow
+            }
+        }
+
+        if ($deleteChoice -eq '3') {
+            Write-Host "🛈 Delete cancelled. The search/action will remain in its current state." -ForegroundColor Cyan
+            return $false
+        }
+
+        if ($deleteChoice -eq '1') {
+            if ($searchInProgress) {
+                Write-Host "🛈 Stopping compliance search '$SearchName'..." -ForegroundColor Cyan
+                Stop-ComplianceSearch -Identity $SearchName -Confirm:$false -ErrorAction SilentlyContinue
+                Wait-ForComplianceSearch -SearchName $SearchName | Out-Null
+            }
+            # Note: There is no Stop-ComplianceSearchAction cmdlet; purge actions will be
+            # removed directly and Microsoft Purview will handle the cancellation.
+        } elseif ($deleteChoice -eq '2') {
+            if ($actionInProgress) {
+                Write-Host "🛈 Waiting for purge action to complete..." -ForegroundColor Cyan
+                Wait-ForCompliancePurge -SearchName $SearchName -ActionName $PurgeActionName | Out-Null
+            }
+            if ($searchInProgress) {
+                Write-Host "🛈 Waiting for compliance search to complete..." -ForegroundColor Cyan
+                Wait-ForComplianceSearch -SearchName $SearchName | Out-Null
+            }
+        }
+    }
+
+    if ($null -ne $action) {
+        Remove-ComplianceSearchAction -Identity $PurgeActionName -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Host "🛈 Purge action removed." -ForegroundColor Cyan
+    }
+    Remove-ComplianceSearch -Identity $SearchName -Confirm:$false -ErrorAction SilentlyContinue
+    Write-Host "🛈 Compliance search removed." -ForegroundColor Cyan
+    return $true
+}
+
 function Read-ExistingSearchChoice {
     param(
         [Parameter(Mandatory = $true)]
@@ -609,13 +764,11 @@ if ($existingSearch) {
 
         switch ($existingChoice) {
             'Overwrite' {
-                $existingAction = Get-ComplianceSearchAction -Identity $purgeActionName -ErrorAction SilentlyContinue
-                if ($existingAction) {
-                    Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false
-                    Write-Host "🛈 Existing purge action removed." -ForegroundColor Cyan
+                $deleted = Remove-ComplianceSearchSafely -SearchName $SearchName -PurgeActionName $purgeActionName
+                if (-not $deleted) {
+                    Write-Host "✗ Cannot overwrite: deletion was cancelled. Exiting." -ForegroundColor Red
+                    exit 1
                 }
-                Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
-                Write-Host "🛈 Existing compliance search removed." -ForegroundColor Cyan
             }
             'ShowResults' {
                 $terminalStatuses = @("Completed", "Failed", "Stopped")
@@ -666,13 +819,10 @@ if ($existingSearch) {
                 }
             }
             'Delete' {
-                $existingAction = Get-ComplianceSearchAction -Identity $purgeActionName -ErrorAction SilentlyContinue
-                if ($existingAction) {
-                    Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false
-                    Write-Host "🛈 Purge action removed." -ForegroundColor Cyan
+                $deleted = Remove-ComplianceSearchSafely -SearchName $SearchName -PurgeActionName $purgeActionName
+                if ($deleted) {
+                    Write-Host "✓ Compliance search '$SearchName' deleted successfully." -ForegroundColor Green
                 }
-                Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
-                Write-Host "✓ Compliance search '$SearchName' deleted successfully." -ForegroundColor Green
                 exit 0
             }
         }
@@ -820,16 +970,7 @@ if ($PurgeType -eq "None") {
         Write-Host "`n🛈 PurgeType is set to None. The search is complete but no messages will be deleted." -ForegroundColor Cyan
     }
 
-    if (-not $KeepSearch) {
-        if (Read-YesNoResponse -Prompt "Do you want to delete this compliance search from Microsoft Purview?" -DefaultValue $false) {
-            Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
-            Write-Host "🛈 Compliance search removed." -ForegroundColor Cyan
-        } else {
-            Write-Host "🛈 Compliance search retained in Microsoft Purview." -ForegroundColor Cyan
-        }
-    } else {
-        Write-Host "🛈 Compliance search retained in Microsoft Purview (KeepSearch = true)." -ForegroundColor Cyan
-    }
+    Invoke-ComplianceSearchCleanup -SearchName $SearchName -KeepSearch $KeepSearch
 
     exit 0
 }
@@ -837,10 +978,7 @@ if ($PurgeType -eq "None") {
 if ($itemCount -eq 0) {
     Write-Host "`n🛈 No matching messages found. Nothing to delete." -ForegroundColor Cyan
 
-    if (-not $KeepSearch) {
-        Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
-        Write-Host "🛈 Compliance search removed." -ForegroundColor Cyan
-    }
+    Invoke-ComplianceSearchCleanup -SearchName $SearchName -KeepSearch $KeepSearch
 
     exit 0
 }
@@ -858,10 +996,7 @@ if (-not $SkipConfirmation) {
     if (-not $confirmed) {
         Write-Host "✗ Operation cancelled by user." -ForegroundColor Red
 
-        if (-not $KeepSearch) {
-            Remove-ComplianceSearch -Identity $SearchName -Confirm:$false
-            Write-Host "🛈 Compliance search removed." -ForegroundColor Cyan
-        }
+        Invoke-ComplianceSearchCleanup -SearchName $SearchName -KeepSearch $KeepSearch
 
         exit
     }
@@ -901,14 +1036,4 @@ if ($PurgeType -eq "SoftDelete") {
 
 # ─── Cleanup ──────────────────────────────────────────────────────────────────
 
-if (-not $KeepSearch) {
-    try {
-        Remove-ComplianceSearchAction -Identity $purgeActionName -Confirm:$false -ErrorAction SilentlyContinue
-        Remove-ComplianceSearch -Identity $SearchName -Confirm:$false -ErrorAction SilentlyContinue
-        Write-Host "`n🛈 Compliance search and purge action removed." -ForegroundColor Cyan
-    } catch {
-        Write-Host "`n⚠ Could not remove compliance search/action: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-} else {
-    Write-Host "`n🛈 Compliance search and purge action retained (KeepSearch = true)." -ForegroundColor Cyan
-}
+Invoke-ComplianceSearchCleanup -SearchName $SearchName -PurgeActionName $purgeActionName -KeepSearch $KeepSearch

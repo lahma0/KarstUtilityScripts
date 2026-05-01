@@ -290,7 +290,12 @@ function Initialize-ExchangeOnlineModule {
 function Test-ExchangeOnlineConnection {
     try {
         $con = Get-ConnectionInformation -ErrorAction Stop
-        return [bool]$con
+        if (-not $con) { return $false }
+        # Also verify that EXO transport cmdlets are actually loaded in this session.
+        # Get-ConnectionInformation can return stale data from a prior session while the
+        # cmdlets have not yet been registered, causing every subsequent transport rule
+        # call to fail with 'not recognized'.
+        return [bool](Get-Command Get-TransportRule -ErrorAction SilentlyContinue)
     } catch {
         return $false
     }

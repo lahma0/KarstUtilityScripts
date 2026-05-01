@@ -130,13 +130,13 @@ The script builds a KQL query from the provided filter parameters, creates and r
 | `-To` | No\* | Recipient email address to search for. |
 | `-Subject` | No\* | Subject line to search for. Supports partial matches. |
 | `-MatchTerms` | No\* | One or more keywords/phrases to search for in the message body. Multiple terms are combined with OR logic. Accepts a string array: `@("term one", "term two")`. |
-| `-StartDate` | No\* | Only match messages sent on or after this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. |
-| `-EndDate` | No\* | Only match messages sent on or before this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. |
+| `-StartDate` | No\* | Only match messages sent on or after this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. Dates are treated as local time and automatically converted to UTC before the query is sent to the server. |
+| `-EndDate` | No\* | Only match messages sent on or before this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. Dates are treated as local time and automatically converted to UTC before the query is sent to the server. |
 | `-HasAttachment` | No\* | When `$true`, only match messages with attachments. When `$false`, only match messages without attachments. When omitted, attachment presence is not filtered. |
 | `-SearchName` | No | Name for the compliance search created in Microsoft Purview. If a search with this name already exists, an interactive menu is presented (see below). Defaults to an auto-generated timestamp-based name. |
-| `-PurgeType` | No | How to delete matched messages. `SoftDelete` moves messages to Recoverable Items (recoverable). `HardDelete` permanently deletes them. `None` runs the search only without deleting anything — useful for validating criteria before committing to a purge. Defaults to `SoftDelete`. |
+| `-PurgeType` | No | How to delete matched messages. `SoftDelete` moves messages to Recoverable Items (recoverable), but note that soft-deleted messages remain findable by subsequent content searches since they still exist in the user's Recoverable Items folder — this is expected behavior. `HardDelete` permanently deletes them and removes them from search results. `None` runs the search only without deleting anything — useful for validating criteria before committing to a purge. Defaults to `SoftDelete`. |
 | `-SkipConfirmation` | No | When `$true`, skips the interactive confirmation prompt before purging. Defaults to `$false`. |
-| `-KeepSearch` | No | When `$true`, retains the compliance search and purge action in Microsoft Purview after the script completes. Defaults to `$false`. |
+| `-KeepSearch` | No | Switch parameter. When specified, retains the compliance search and purge action in Microsoft Purview after the script completes without prompting. When omitted, the script asks whether to delete the search upon completion (default: Y). |
 
 \* At least one search parameter (`From`, `To`, `Subject`, `MatchTerms`, `StartDate`, `EndDate`, or `HasAttachment`) must be provided. If none are supplied via parameters, the script prompts interactively.
 
@@ -150,7 +150,7 @@ When `-SearchName` is provided and a compliance search with that name already ex
 | 2 - Show existing search results | Displays the item count, size, and per-mailbox breakdown from the existing search without making any changes. Exits after displaying results. |
 | 3 - Re-run the search | Restarts the existing search using its stored KQL query, waits for completion, then continues with the normal purge flow. |
 | 4 - Run a purge on existing results | Skips directly to the purge step using the results already in the existing search. If `PurgeType` is `None`, prompts for SoftDelete or HardDelete first. |
-| 5 - Delete and exit | Removes the compliance search and any associated purge action from Purview, then exits. |
+| 5 - Delete and exit | Removes the compliance search and any associated purge action from Purview, then exits. If the search or purge action is still in progress, you are prompted to either stop it immediately and delete, wait for it to finish and then delete, or cancel the deletion. |
 
 **Required Module:** `ExchangeOnlineManagement` (v3.9.0 or higher)
 

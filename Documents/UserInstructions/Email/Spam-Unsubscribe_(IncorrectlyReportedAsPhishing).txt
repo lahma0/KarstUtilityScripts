@@ -1,0 +1,7 @@
+Hi ______,
+
+This type of email would be classified as spam, not phishing. For an email to be classified as phishing, there needs to be some type of attempt by the sender to pretend to be someone they are, usually in an attempt to get you to open an attachment, click on a malicious link, change billing information, etc.
+
+This is just a standard mailing-list marketing email. One that you most likely inadvertently signed up for. For emails like this, I recommend scrolling to the bottom and clicking the 'Unsubscribe' link before reporting the message as spam. Otherwise, you will likely continue receiving similar emails in the future.
+
+Only do this if the email is clearly legitimate. If anything seems suspicious—such as an unexpected sender, a questionable email address (for example, a @gmail.com address claiming to be from Best Buy), or no clear reason you’d be on the mailing list—report the email directly without clicking 'Unsubscribe'. Thanks!
