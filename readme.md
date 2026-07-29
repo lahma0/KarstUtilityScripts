@@ -31,7 +31,8 @@ KarstUtilityScripts/
     `-- UserManagement/
         |-- Find-MatchingAccountsByNames.ps1
         |-- Get-ExtensionAttribute.ps1
-        `-- Set-ExtensionAttribute.ps1
+        |-- Set-ExtensionAttribute.ps1
+        `-- Set-UserProfileData.ps1
 ```
 
 ## Current Script Catalog
@@ -87,7 +88,11 @@ Gets the Windows LAPS password for one or more Intune-managed devices from Micro
 
 If `DeviceIds` are not supplied when the script is run, it prompts for one or more comma-separated device IDs or device names.
 
-After passwords are retrieved, the script automatically copies the first returned password to the system clipboard and displays the machine name associated with that copied password.
+After passwords are retrieved, the script automatically copies the first returned password to the system clipboard (unless `-NoCopy` is supplied) and displays the machine name associated with that copied password.
+
+By default, the script prompts to confirm whether plaintext password values should be printed to the console output. If you answer `No`, the `Password` field is redacted in the returned results. Use `-SkipPrompt` to bypass this confirmation and print unredacted values.
+
+Detailed stage/timing diagnostics are available via standard PowerShell verbose output (`-Verbose`).
 
 **Parameters**
 
@@ -95,6 +100,8 @@ After passwords are retrieved, the script automatically copies the first returne
 |-----------|----------|-------------|
 | `-DeviceIds` | No | One or more Intune device IDs or device names to query. Accepts a string array. If omitted, the script prompts interactively. |
 | `-IncludeHistory` | No | When supplied, also requests password history in addition to the current password. |
+| `-NoCopy` | No | When supplied, skips copying the first returned password to the clipboard. |
+| `-SkipPrompt` | No | When supplied, skips the plaintext output confirmation prompt and prints password fields unredacted. |
 
 **Required Graph Scopes:** `DeviceLocalCredential.Read.All`, `Device.Read.All`
 
@@ -112,6 +119,15 @@ After passwords are retrieved, the script automatically copies the first returne
 
 # Include password history in the results
 .\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -IncludeHistory
+
+# Show detailed stage/timing diagnostics
+.\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -Verbose
+
+# Skip copying password to clipboard
+.\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -NoCopy
+
+# Skip plaintext-output confirmation prompt and print unredacted passwords
+.\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -SkipPrompt
 ```
 
 ### M365 / Email
@@ -126,8 +142,8 @@ The script builds a KQL query from the provided filter parameters, creates and r
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `-From` | No\* | Sender email address to search for. |
-| `-To` | No\* | Recipient email address to search for. |
+| `-From` | No\* | Sender email address or domain to search for. Accepts a full email address (`attacker@evil.com`) or a bare domain name (`evil.com`) to match any sender from that domain. |
+| `-To` | No\* | Recipient email address or domain to search for. Accepts a full email address (`victim@karst.com`) or a bare domain name (`karst.com`) to match any recipient at that domain. |
 | `-Subject` | No\* | Subject line to search for. Supports partial matches. |
 | `-MatchTerms` | No\* | One or more keywords/phrases to search for in the message body. Multiple terms are combined with OR logic. Accepts a string array: `@("term one", "term two")`. |
 | `-StartDate` | No\* | Only match messages sent on or after this date. Accepted input: `DateTime`, `MM/dd/yyyy`, or `MM/dd/yyyy h:mm tt`. Dates are treated as local time and automatically converted to UTC before the query is sent to the server. |
@@ -275,6 +291,53 @@ Retrieves extension attribute values for one or more user objects. Specifically 
 Get-Content users.txt | .\Get-ExtensionAttribute.ps1 -AttributeNum 2
 ```
 
+#### `Grant-AccessToOneDrive.ps1`
+
+Grants one or more users access to another user's OneDrive by assigning Site Collection Administrator rights on that OneDrive site.
+
+The script prompts for any required values that are not supplied as parameters and supports passing multiple users in a single parameter array.
+
+It can both grant and revoke OneDrive access for one or more users.
+
+Important: this method grants full read/write administrative access to the target OneDrive site. There is no read-only mode in this script.
+
+The script outputs the target personal-site URL (for example, `https://tmconcrete-my.sharepoint.com/personal/jdoe_karst_com/`).
+
+If the user does not immediately see the target user's files after opening that URL, they should click **My files** in the left navigation.
+
+**Parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-TargetUserId` | No | The target user's UPN/email address whose OneDrive should be shared. If omitted, the script prompts interactively. |
+| `-UserIds` | No | One or more UPN/email addresses of users who should receive access. Accepts a string array. If omitted, the script prompts for one or more values separated by commas. |
+| `-TenantName` | No | SharePoint tenant prefix used to build the personal site URL. Defaults to `tmconcrete`. |
+| `-SiteUrl` | No | Optional full URL for the target OneDrive personal site. If omitted, the script derives the URL from `TargetUserId` and `TenantName`. |
+| `-Revoke` | No | Switch parameter. When supplied, removes Site Collection Administrator access for each specified user. |
+
+**Required Module:** `Microsoft.Online.SharePoint.PowerShell`
+
+**Required Permissions:** SharePoint Online admin rights sufficient to manage Site Collection Administrators
+
+**Usage Examples**
+
+```powershell
+# Prompt interactively for the target user and the users to grant access to
+.\Grant-AccessToOneDrive.ps1
+
+# Grant access to one user for a specific OneDrive site
+.\Grant-AccessToOneDrive.ps1 -TargetUserId "jdoe@karst.com" -UserIds "manager@karst.com"
+
+# Grant access to multiple users at once
+.\Grant-AccessToOneDrive.ps1 -TargetUserId "jdoe@karst.com" -UserIds "manager@karst.com","manager@texmix.com","manager@sunrise-rm.com"
+
+# Use an explicitly supplied personal site URL
+.\Grant-AccessToOneDrive.ps1 -TargetUserId "jdoe@karst.com" -SiteUrl "https://tmconcrete-my.sharepoint.com/personal/jdoe_karst_com/"
+
+# Revoke access for one or more users
+.\Grant-AccessToOneDrive.ps1 -TargetUserId "jdoe@karst.com" -UserIds "manager@karst.com","manager@texmix.com" -Revoke
+```
+
 #### `Set-ExtensionAttribute.ps1`
 
 Updates extension attribute values for one or more user objects. Specifically designed to set the values of `ExtensionAttribute1` (`IsSecondaryAccount`) and `ExtensionAttribute2` (`IsHoxhuntDisabled`). These attributes are used for Hoxhunt SCIM to determine whether specific users should or should not be enrolled in training.
@@ -309,6 +372,69 @@ These are string properties treated as booleans — values should be set to eith
 
 # Re-enable a user for Hoxhunt training
 .\Set-ExtensionAttribute.ps1 -UserId "user@domain.com" -AttributeNum 1 -Value "False"
+```
+
+#### `Set-UserProfileData.ps1`
+
+Sets new employee profile data by updating standard Microsoft Graph user properties, manager assignment, Entra custom security attributes, and string-based extension attributes used for Hoxhunt behavior flags.
+
+The script supports both interactive and parameter-driven workflows:
+
+- If run without profile parameters, it prompts for `UserPrincipalName` and then prompts all fields.
+- If run with only `UserPrincipalName`, it still prompts all fields.
+- If run with specific profile parameters, only those parameters are processed.
+- If a supplied parameter is missing a value, only that field is prompted.
+- Prompted fields are editable with the current value prefilled.
+- Press `Enter` to keep current value, `Backspace` to clear value, and `Tab` to skip unchanged.
+
+**Special handling**
+
+- Manager assignment uses `Set-MgUserManagerByRef`.
+- Custom security attributes use:
+  - `Get-MgUserSecurityAttribute`
+  - `New-MgUserSecurityAttributeAssignment`
+  - `Update-MgUserSecurityAttribute`
+- `IsSecondaryAccount` and `IsHoxhuntDisabled` are normalized to `True`/`False` and stored in extension attributes (`CustomAttribute1`/`CustomAttribute2`).
+
+**Common parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-UserPrincipalName` | No | Target user UPN. Prompted if omitted. |
+| `-ManagerEmailAddress` | No | Manager UPN/email. Assigns or clears manager reference. |
+| `-IsSecondaryAccount` | No | Stored as normalized `True`/`False` string in extension attribute 1. |
+| `-IsHoxhuntDisabled` | No | Stored as normalized `True`/`False` string in extension attribute 2. |
+
+Additional supported parameters map directly to the profile schema in the script help, including identity, contact, address, organization, and string-collection fields such as `BusinessPhones`, `OtherMails`, `Responsibilities`, `Skills`, etc.
+
+**Required Modules**
+
+- `Microsoft.Graph`
+- `ExchangeOnlineManagement` (for extension attribute updates)
+
+**Required Graph Scopes**
+
+- `User.ReadWrite.All`
+- `Directory.ReadWrite.All`
+- `CustomSecAttributeAssignment.ReadWrite.All`
+
+**Usage Examples**
+
+```powershell
+# Fully interactive (prompt UPN, then prompt all fields)
+.\Set-UserProfileData.ps1
+
+# Prompt all fields for an existing user
+.\Set-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com"
+
+# Update only provided fields (no extra prompts)
+.\Set-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com" -DisplayName "John Q. Doe" -Department "Accounting"
+
+# Update manager and Hoxhunt flags
+.\Set-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com" -ManagerEmailAddress "mgr@contoso.com" -IsSecondaryAccount "True" -IsHoxhuntDisabled "False"
+
+# Update string collections using JSON array format
+.\Set-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com" -Responsibilities '["Approve invoices", "Manage monthly close"]'
 ```
 
 ## Usage Notes

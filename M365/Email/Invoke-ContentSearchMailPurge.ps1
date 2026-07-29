@@ -22,16 +22,21 @@ connected to the Security & Compliance Center and automatically initiates connec
 when needed.
 
 .PARAMETER From
-Sender email address to search for.
+Sender email address or domain to search for. Accepts a full email address or a bare domain name.
 
-Example: attacker@evil.com
+Examples:
+  attacker@evil.com        (matches that specific sender)
+  evil.com                 (matches any sender from that domain)
 
 [Optional - but at least one search parameter must be provided]
 
 .PARAMETER To
-Recipient email address to search for (matches the To field of the message).
+Recipient email address or domain to search for (matches the To field of the message).
+Accepts a full email address or a bare domain name.
 
-Example: victim@karst.com
+Examples:
+  victim@karst.com         (matches that specific recipient)
+  karst.com                (matches any recipient at that domain)
 
 [Optional - but at least one search parameter must be provided]
 
@@ -325,6 +330,28 @@ function Test-ValidEmail([string]$email) {
         if ($label.StartsWith('-') -or $label.EndsWith('-')) { return $false }
     }
     return $true
+}
+
+function Test-ValidDomain([string]$domain) {
+    if ([string]::IsNullOrEmpty($domain) -or $domain.Length -gt 253) { return $false }
+    if ($domain.StartsWith('.') -or $domain.EndsWith('.')) { return $false }
+    if ($domain.StartsWith('-') -or $domain.EndsWith('-')) { return $false }
+    if ($domain.Contains('..')) { return $false }
+    if ($domain -notmatch '^([A-Za-z0-9][A-Za-z0-9\-]{0,61}[A-Za-z0-9]?\.)+[A-Za-z]{2,}$') { return $false }
+    $labels = $domain.Split('.')
+    foreach ($label in $labels) {
+        if ($label.Length -lt 1 -or $label.Length -gt 63) { return $false }
+        if ($label.StartsWith('-') -or $label.EndsWith('-')) { return $false }
+    }
+    return $true
+}
+
+function Test-ValidEmailOrDomain([string]$value) {
+    # If the value contains '@', treat it as an email address; otherwise treat it as a domain.
+    if ($value -match '@') {
+        return Test-ValidEmail $value
+    }
+    return Test-ValidDomain $value
 }
 
 function Convert-ToKqlDateString {
@@ -840,15 +867,15 @@ if (-not $skipNewSearch) {
     # ─── Validate email parameters ────────────────────────────────────────────
 
     if (-not [string]::IsNullOrWhiteSpace($From)) {
-        if (-not (Test-ValidEmail $From)) {
-            Write-Host "✗ Invalid From email address: '$From'. Exiting." -ForegroundColor Red
+        if (-not (Test-ValidEmailOrDomain $From)) {
+            Write-Host "✗ Invalid From value: '$From'. Expected a valid email address (user@domain.com) or domain (domain.com). Exiting." -ForegroundColor Red
             exit 1
         }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($To)) {
-        if (-not (Test-ValidEmail $To)) {
-            Write-Host "✗ Invalid To email address: '$To'. Exiting." -ForegroundColor Red
+        if (-not (Test-ValidEmailOrDomain $To)) {
+            Write-Host "✗ Invalid To value: '$To'. Expected a valid email address (user@domain.com) or domain (domain.com). Exiting." -ForegroundColor Red
             exit 1
         }
     }
@@ -869,19 +896,19 @@ if (-not $skipNewSearch) {
         Write-Host "`n⚠ At least one search parameter (From, To, Subject, MatchTerms, StartDate, EndDate, or HasAttachment) must be provided." -ForegroundColor Yellow
         Write-Host "Please enter search criteria below. Leave a field blank to skip it.`n" -ForegroundColor Yellow
 
-        $inputFrom = Read-Host "From (sender email address)"
+        $inputFrom = Read-Host "From (sender email address or domain)"
         if (-not [string]::IsNullOrWhiteSpace($inputFrom)) {
-            if (-not (Test-ValidEmail $inputFrom.Trim())) {
-                Write-Host "✗ Invalid From email address. Skipping." -ForegroundColor Yellow
+            if (-not (Test-ValidEmailOrDomain $inputFrom.Trim())) {
+                Write-Host "✗ Invalid From value. Enter a valid email address (user@domain.com) or domain (domain.com). Skipping." -ForegroundColor Yellow
             } else {
                 $From = $inputFrom.Trim()
             }
         }
 
-        $inputTo = Read-Host "To (recipient email address)"
+        $inputTo = Read-Host "To (recipient email address or domain)"
         if (-not [string]::IsNullOrWhiteSpace($inputTo)) {
-            if (-not (Test-ValidEmail $inputTo.Trim())) {
-                Write-Host "✗ Invalid To email address. Skipping." -ForegroundColor Yellow
+            if (-not (Test-ValidEmailOrDomain $inputTo.Trim())) {
+                Write-Host "✗ Invalid To value. Enter a valid email address (user@domain.com) or domain (domain.com). Skipping." -ForegroundColor Yellow
             } else {
                 $To = $inputTo.Trim()
             }

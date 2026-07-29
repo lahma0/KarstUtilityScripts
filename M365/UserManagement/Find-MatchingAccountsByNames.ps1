@@ -205,8 +205,12 @@ function Initialize-SharedMailboxLookupState {
         }
 
         try {
+            # Write-Host "Connecting to Exchange Online (device code auth)..." -ForegroundColor Cyan
+            # Connect-ExchangeOnline -ShowBanner:$false -Device
+
             Write-Host "Connecting to Exchange Online (default auth)..." -ForegroundColor Cyan
             Connect-ExchangeOnline -ShowBanner:$false
+
             Get-EXOMailbox -ResultSize 1 -ErrorAction Stop | Out-Null
         } catch {
             return [PSCustomObject]@{

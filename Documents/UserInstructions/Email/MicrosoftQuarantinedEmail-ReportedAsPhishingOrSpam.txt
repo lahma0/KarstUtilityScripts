@@ -1,0 +1,5 @@
+Hi _______,
+
+This is a legitimate email telling you that an email that was sent to you has been placed in quarantine. If you can tell that the email isn't something you care about by the subject and sender, then you can just ignore it. If it looks like something you might potentially need, you can click 'Review Message' to look at the email, and then, if you determine it is legitimate, and you actually need it, you can click 'Release' and it will be returned to your inbox.
+
+For future sake though, these emails shouldn't be reported using Hoxhunt as they are legitimate emails from Microsoft (which you can tell by looking at the sender email address which ends with 'microsoft.com'. Thanks!

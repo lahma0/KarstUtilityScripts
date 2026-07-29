@@ -23,6 +23,12 @@ One or more Intune device IDs or names to query. This parameter accepts a string
 .PARAMETER IncludeHistory
 When supplied, requests password history in addition to the current password.
 
+.PARAMETER NoCopy
+When supplied, skips copying the first returned password to the clipboard.
+
+.PARAMETER SkipPrompt
+When supplied, skips the plaintext output confirmation prompt and prints passwords unredacted.
+
 .EXAMPLE
 .\Get-IntuneLocalAdminPassword.ps1
 
@@ -42,6 +48,21 @@ Retrieves the current LAPS password for multiple devices.
 .\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -IncludeHistory
 
 Retrieves the current LAPS password and password history for the specified device.
+
+.EXAMPLE
+.\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -Verbose
+
+Shows detailed stage/timing output while running the lookup.
+
+.EXAMPLE
+.\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -NoCopy
+
+Retrieves LAPS data but does not copy any password to the clipboard.
+
+.EXAMPLE
+.\Get-IntuneLocalAdminPassword.ps1 -DeviceIds "JohnDoeLaptop" -SkipPrompt
+
+Skips the plaintext output confirmation prompt and prints unredacted password fields.
 #>
 [CmdletBinding()]
 param(
@@ -49,13 +70,92 @@ param(
     [string[]]$DeviceIds,
 
     [Parameter(Mandatory = $false)]
-    [switch]$IncludeHistory
+    [switch]$IncludeHistory,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$NoCopy,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipPrompt
 )
 
 $requiredScopes = @(
     "DeviceLocalCredential.Read.All",
     "Device.Read.All"
 )
+
+$scriptStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+function Write-Stage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    $elapsed = "{0:mm\:ss}" -f $scriptStopwatch.Elapsed
+    Write-Verbose "[$elapsed] $Message"
+}
+
+function Write-StageDetail {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    $elapsed = "{0:mm\:ss}" -f $scriptStopwatch.Elapsed
+    Write-Verbose "[$elapsed] $Message"
+}
+
+function Confirm-PlaintextPasswordOutput {
+    param(
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipPrompt
+    )
+
+    if ($SkipPrompt.IsPresent) {
+        return $true
+    }
+
+    while ($true) {
+        $response = Read-Host "Print plaintext password(s) to the console output? (Y/N)"
+
+        if ($response -in @("Y", "y", "Yes", "YES", "yes")) {
+            return $true
+        }
+
+        if ($response -in @("N", "n", "No", "NO", "no")) {
+            return $false
+        }
+
+        Write-Host "Please answer Y or N." -ForegroundColor Yellow
+    }
+}
+
+function Get-RedactedLapsResults {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$LapsResults
+    )
+
+    $redactedResults = @()
+
+    foreach ($result in $LapsResults) {
+        $props = [ordered]@{}
+        foreach ($property in $result.PSObject.Properties) {
+            $value = $property.Value
+
+            if ($property.Name -eq "Password" -and -not [string]::IsNullOrWhiteSpace([string]$value)) {
+                $value = "[REDACTED]"
+            }
+
+            $props[$property.Name] = $value
+        }
+
+        $redactedResults += [PSCustomObject]$props
+    }
+
+    return $redactedResults
+}
 
 function Test-IsGuid {
     param(
@@ -81,6 +181,8 @@ function Resolve-DeviceIdentifiers {
             continue
         }
 
+        Write-StageDetail "Resolving identifier '$candidate'..."
+
         if (Test-IsGuid -Value $candidate) {
             # LAPS expects Entra device.deviceId, not directory object Id.
             try {
@@ -92,6 +194,7 @@ function Resolve-DeviceIdentifiers {
 
             if ($matchedByDeviceId.Count -eq 1) {
                 $resolvedDeviceIds += $matchedByDeviceId[0].DeviceId
+                Write-StageDetail "Resolved GUID '$candidate' directly as deviceId '$($matchedByDeviceId[0].DeviceId)'."
                 continue
             }
 
@@ -110,6 +213,7 @@ function Resolve-DeviceIdentifiers {
 
             if ($matchedByObjectId -and -not [string]::IsNullOrWhiteSpace($matchedByObjectId.DeviceId)) {
                 $resolvedDeviceIds += $matchedByObjectId.DeviceId
+                Write-StageDetail "Resolved object Id '$candidate' to deviceId '$($matchedByObjectId.DeviceId)'."
                 continue
             }
 
@@ -141,6 +245,7 @@ function Resolve-DeviceIdentifiers {
             }
 
             $resolvedDeviceIds += $match.DeviceId
+            Write-StageDetail "Resolved '$candidate' to device '$($match.DisplayName)' with deviceId '$($match.DeviceId)'."
         }
     }
 
@@ -154,6 +259,8 @@ function Resolve-DeviceIdentifiers {
 }
 
 function Initialize-MicrosoftGraphModule {
+    Write-Stage "Checking Microsoft Graph module availability..."
+
     $mgModule = Get-Module -ListAvailable -Name Microsoft.Graph
 
     if (-not $mgModule) {
@@ -200,7 +307,7 @@ function Initialize-MgGraphConnection {
     }
 
     if ($needsConnect) {
-        Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
+        Write-Stage "Connecting to Microsoft Graph..."
         try {
             Connect-MgGraph -Scopes $Scopes -NoWelcome -ErrorAction Stop | Out-Null
             Write-Host "Connected to Microsoft Graph." -ForegroundColor Green
@@ -209,7 +316,7 @@ function Initialize-MgGraphConnection {
             exit 1
         }
     } else {
-        Write-Host "Microsoft Graph is already connected with required scopes." -ForegroundColor Green
+        Write-Stage "Microsoft Graph is already connected with required scopes."
     }
 }
 
@@ -282,7 +389,13 @@ function Get-IntuneLocalAdminPassword {
         [string[]]$ManagedDeviceIds,
 
         [Parameter(Mandatory = $false)]
-        [switch]$IncludeHistory
+        [switch]$IncludeHistory,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$NoCopy,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipPrompt
     )
 
     $lapsCommand = Get-Command -Name Get-LapsAADPassword -ErrorAction SilentlyContinue
@@ -304,6 +417,9 @@ function Get-IntuneLocalAdminPassword {
     $allResults = @()
 
     foreach ($deviceId in $ManagedDeviceIds) {
+        $deviceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        Write-Stage "Requesting LAPS password for deviceId '$deviceId'..."
+
         $splat = @{
             DeviceIds = @($deviceId)
         }
@@ -324,6 +440,7 @@ function Get-IntuneLocalAdminPassword {
             $deviceResult = Get-LapsAADPassword @splat -ErrorAction Stop
             if ($deviceResult) {
                 $allResults += $deviceResult
+                Write-StageDetail "LAPS query completed for '$deviceId' in $([int]$deviceStopwatch.Elapsed.TotalSeconds)s."
             }
         } catch {
             Write-Error "Failed to retrieve local admin password for device '$deviceId': $_"
@@ -336,7 +453,18 @@ function Get-IntuneLocalAdminPassword {
         return
     }
 
-    Copy-FirstLapsPasswordToClipboard -LapsResults $allResults
+    if ($NoCopy.IsPresent) {
+        Write-Verbose "Clipboard copy skipped because -NoCopy was specified."
+    } else {
+        Copy-FirstLapsPasswordToClipboard -LapsResults $allResults
+    }
+
+    $showPlaintext = Confirm-PlaintextPasswordOutput -SkipPrompt:$SkipPrompt
+    if (-not $showPlaintext) {
+        Write-Host "Password field will be redacted in console output." -ForegroundColor Yellow
+        $allResults = Get-RedactedLapsResults -LapsResults $allResults
+    }
+
     Write-Host "LAPS password lookup successful for $($ManagedDeviceIds.Count) device(s)." -ForegroundColor Green
     $allResults
 }
@@ -351,7 +479,11 @@ if (-not $DeviceIds -or $DeviceIds.Count -eq 0) {
     exit 1
 }
 
+Write-Stage "Starting LAPS password lookup workflow..."
 Initialize-MicrosoftGraphModule
 Initialize-MgGraphConnection -Scopes $requiredScopes
+Write-Stage "Resolving supplied device identifiers in Microsoft Graph..."
 $resolvedDeviceIds = Resolve-DeviceIdentifiers -Identifiers $DeviceIds
-Get-IntuneLocalAdminPassword -ManagedDeviceIds $resolvedDeviceIds -IncludeHistory:$IncludeHistory
+Write-Stage "Resolved $($resolvedDeviceIds.Count) unique deviceId(s)."
+Get-IntuneLocalAdminPassword -ManagedDeviceIds $resolvedDeviceIds -IncludeHistory:$IncludeHistory -NoCopy:$NoCopy -SkipPrompt:$SkipPrompt
+Write-Stage "Workflow completed in $([int]$scriptStopwatch.Elapsed.TotalSeconds)s."

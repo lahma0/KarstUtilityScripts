@@ -1,0 +1,12 @@
+-------------
+ERROR MESSAGE
+-------------
+Sync Error
+Cannot update work order #xxxxx:
+Status code is Closed
+
+---
+FIX
+---
+
+Make sure the work order mentioned in the error is closed and then uninstall/reinstall the E360 app. That should resolve the error.
