@@ -43,20 +43,25 @@ Range: 7-20.
 
 Default: 14
 
-.PARAMETER UseNumbers
-When Mode is Custom, include digits 0-9.
+.PARAMETER ExcludeNumbers
+Switch. When Mode is Custom, excludes digits 0-9 from the generated password.
 
-Default: True
+Note: DinoPass's symbol substitutions (e.g. '3' for 'e') can still introduce digit-like
+characters even when this switch is set, since that behavior is tied to the symbols
+feature rather than the numbers feature. Combine with -ExcludeSymbols to guarantee no
+digits appear.
 
-.PARAMETER UseSymbols
-When Mode is Custom, include symbols (!@#$%^&+).
+Default: Off (numbers are included)
 
-Default: True
+.PARAMETER ExcludeSymbols
+Switch. When Mode is Custom, excludes symbols (!@#$%^&+) from the generated password.
 
-.PARAMETER UseCapitals
-When Mode is Custom, include uppercase letters A-Z.
+Default: Off (symbols are included)
 
-Default: True
+.PARAMETER ExcludeCapitals
+Switch. When Mode is Custom, excludes uppercase letters A-Z from the generated password.
+
+Default: Off (capitals are included)
 
 .PARAMETER Word
 Word to check when Mode is HasWord.
@@ -103,9 +108,9 @@ quickfox27
 ```
 
 .EXAMPLE
-.\Get-DinoPass.ps1 -Mode Custom -Count 3 -Length 16 -UseNumbers $true -UseSymbols $true -UseCapitals $true
+.\Get-DinoPass.ps1 -Mode Custom -Count 3 -Length 16
 
-Generates three custom DinoPass passwords with 16-character length and full character options.
+Generates three custom DinoPass passwords with 16-character length and full character options (numbers, symbols, and capitals all included by default).
 
 Sample output:
 
@@ -159,13 +164,13 @@ param(
     [int]$Length = 14,
 
     [Parameter()]
-    [bool]$UseNumbers = $true,
+    [switch]$ExcludeNumbers,
 
     [Parameter()]
-    [bool]$UseSymbols = $true,
+    [switch]$ExcludeSymbols,
 
     [Parameter()]
-    [bool]$UseCapitals = $true,
+    [switch]$ExcludeCapitals,
 
     [Parameter()]
     [string]$Word,
@@ -215,9 +220,9 @@ switch ($Mode) {
     'Custom' {
         $query['n'] = [string]$Count
         $query['length'] = [string]$Length
-        $query['useNumbers'] = $UseNumbers.ToString().ToLowerInvariant()
-        $query['useSymbols'] = $UseSymbols.ToString().ToLowerInvariant()
-        $query['useCapitals'] = $UseCapitals.ToString().ToLowerInvariant()
+        $query['useNumbers'] = (-not $ExcludeNumbers).ToString().ToLowerInvariant()
+        $query['useSymbols'] = (-not $ExcludeSymbols).ToString().ToLowerInvariant()
+        $query['useCapitals'] = (-not $ExcludeCapitals).ToString().ToLowerInvariant()
     }
     'HasWord' {
         $query['word'] = $Word.Trim()
