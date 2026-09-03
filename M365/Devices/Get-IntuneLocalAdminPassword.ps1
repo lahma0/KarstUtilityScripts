@@ -261,32 +261,40 @@ function Resolve-DeviceIdentifiers {
 function Initialize-MicrosoftGraphModule {
     Write-Stage "Checking Microsoft Graph module availability..."
 
-    $mgModule = Get-Module -ListAvailable -Name Microsoft.Graph
+    # Import only the submodules this script needs; the Microsoft.Graph meta-module loads every Graph submodule and is far slower.
+    $requiredGraphModules = @(
+        "Microsoft.Graph.Authentication",
+        "Microsoft.Graph.Identity.DirectoryManagement"
+    )
 
-    if (-not $mgModule) {
-        Write-Host "Microsoft Graph PowerShell module is not installed." -ForegroundColor Yellow
-        $installResponse = Read-Host "Install Microsoft.Graph now? (Y/N)"
+    foreach ($moduleName in $requiredGraphModules) {
+        $moduleAvailable = Get-Module -ListAvailable -Name $moduleName
 
-        if ($installResponse -notin @("Y", "y")) {
-            Write-Error "Microsoft.Graph is required to continue. Exiting."
-            exit 1
+        if (-not $moduleAvailable) {
+            Write-Host "Required module '$moduleName' is not installed." -ForegroundColor Yellow
+            $installResponse = Read-Host "Install '$moduleName' now? (Y/N)"
+
+            if ($installResponse -notin @("Y", "y")) {
+                Write-Error "Module '$moduleName' is required to continue. Exiting."
+                exit 1
+            }
+
+            try {
+                Install-Module -Name $moduleName -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+                Write-Host "Installed '$moduleName'." -ForegroundColor Green
+            } catch {
+                Write-Error "Failed to install '$moduleName': $_"
+                exit 1
+            }
         }
 
-        try {
-            Install-Module -Name Microsoft.Graph -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
-            Write-Host "Microsoft.Graph installed successfully." -ForegroundColor Green
-        } catch {
-            Write-Error "Failed to install Microsoft.Graph: $_"
-            exit 1
-        }
-    }
-
-    if (-not (Get-Module -Name Microsoft.Graph)) {
-        try {
-            Import-Module Microsoft.Graph -ErrorAction Stop
-        } catch {
-            Write-Error "Failed to import Microsoft.Graph: $_"
-            exit 1
+        if (-not (Get-Module -Name $moduleName)) {
+            try {
+                Import-Module $moduleName -ErrorAction Stop
+            } catch {
+                Write-Error "Failed to import '$moduleName': $_"
+                exit 1
+            }
         }
     }
 }

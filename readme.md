@@ -20,6 +20,13 @@ The directory structure is organized by function where possible. Some scripts ma
 ```text
 KarstUtilityScripts/
 |-- readme.md
+|-- Utils/
+|   |-- BusinessCards/
+|   |   `-- templates/
+|   |       `-- karst/
+|   |           `-- New-BusinessCard.ps1
+|   `-- Credentials/
+|       `-- Get-PronounceablePassword.ps1
 `-- M365/
     |-- Compliance/
     |   `-- New-eDiscoveryHold.ps1
@@ -31,6 +38,7 @@ KarstUtilityScripts/
     `-- UserManagement/
         |-- Find-MatchingAccountsByNames.ps1
         |-- Get-ExtensionAttribute.ps1
+        |-- Get-UserProfileData.ps1
         |-- Set-ExtensionAttribute.ps1
         `-- Set-UserProfileData.ps1
 ```
@@ -374,6 +382,43 @@ These are string properties treated as booleans — values should be set to eith
 .\Set-ExtensionAttribute.ps1 -UserId "user@domain.com" -AttributeNum 1 -Value "False"
 ```
 
+#### `Get-UserProfileData.ps1`
+
+Retrieves all profile fields managed by `Set-UserProfileData.ps1` for one Microsoft 365 user. The output includes standard Microsoft Graph profile properties, `HRPersonalData` custom security attributes, the assigned manager, and the Hoxhunt extension attributes.
+
+The default output is a PowerShell object. Collection fields such as `BusinessPhones`, `Interests`, `OtherMails`, `PastProjects`, `Responsibilities`, `Schools`, and `Skills` are returned as arrays. Use `-AsJson` when a JSON representation is needed for export or reuse with other tooling.
+
+**Parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-UserPrincipalName` | No | User UPN or another Microsoft Graph user identifier. If omitted, the script prompts. |
+| `-AsJson` | No | Emits the complete profile as JSON instead of a formatted PowerShell object. |
+
+**Required Modules**
+
+- `Microsoft.Graph`
+- `ExchangeOnlineManagement`
+
+**Required Graph Scopes**
+
+- `User.Read.All`
+- `Directory.Read.All`
+- `CustomSecAttributeAssignment.Read.All`
+
+**Usage Examples**
+
+```powershell
+# Prompt for the user's UPN and display all profile fields
+.\Get-UserProfileData.ps1
+
+# Retrieve profile data for a specific user
+.\Get-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com"
+
+# Retrieve profile data as JSON
+.\Get-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com" -AsJson
+```
+
 #### `Set-UserProfileData.ps1`
 
 Sets new employee profile data by updating standard Microsoft Graph user properties, manager assignment, Entra custom security attributes, and string-based extension attributes used for Hoxhunt behavior flags.
@@ -410,13 +455,15 @@ Additional supported parameters map directly to the profile schema in the script
 **Required Modules**
 
 - `Microsoft.Graph`
-- `ExchangeOnlineManagement` (for extension attribute updates)
 
 **Required Graph Scopes**
 
 - `User.ReadWrite.All`
 - `Directory.ReadWrite.All`
 - `CustomSecAttributeAssignment.ReadWrite.All`
+- `User-Phone.ReadWrite.All`
+- `User-Mail.ReadWrite.All`
+- `User-LifeCycleInfo.ReadWrite.All`
 
 **Usage Examples**
 
@@ -435,6 +482,112 @@ Additional supported parameters map directly to the profile schema in the script
 
 # Update string collections using JSON array format
 .\Set-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com" -Responsibilities '["Approve invoices", "Manage monthly close"]'
+```
+
+### Utils / BusinessCards
+
+#### `New-BusinessCard.ps1`
+
+Generates a business card SVG file by populating a template with contact information. The script discovers available SVG templates, collects field values from parameters or interactive prompts, and writes a fully substituted SVG to a specified output path.
+
+All field values are automatically converted to uppercase in the output, with the exception of QR code content which is preserved as-is. Phone numbers are assembled from separate type, number, and extension inputs and formatted as `C: 737.376.6888` or `O: 254.489.0469 EXT 5027`. QR code content is extracted from a separate QR SVG file by capturing everything between the first `<g>` and last `</g>` elements.
+
+**Supported Template Placeholders**
+
+`<!--#Email#-->`, `<!--#Phone1#-->`, `<!--#Phone2#-->`, `<!--#Addr1#-->`, `<!--#City1#-->`, `<!--#State1#-->`, `<!--#Zip1#-->`, `<!--#Addr2#-->`, `<!--#City2#-->`, `<!--#State2#-->`, `<!--#Zip2#-->`, `<!--#JobTitle#-->`, `<!--#Region#-->`, `<!--#QR#-->`
+
+**Parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-Template` | No | Path to the SVG template file. If omitted, the script searches the templates folder and presents a numbered selection menu. |
+| `-Email` | No\* | Email address. Converted to uppercase. |
+| `-Phone1Type` | No\* | Type of the first phone number. Valid values: `Cell`, `Office`. |
+| `-Phone1Number` | No\* | First phone number. Must be exactly 10 digits (no formatting). |
+| `-Phone1Extension` | No | Extension for the first phone number (1-6 digits). Only prompted if `Phone1` is in the template and both `-Phone1Type` and `-Phone1Number` were not both pre-supplied as parameters. Leave blank for no extension. |
+| `-Phone2Type` | No\* | Type of the second phone number. Valid values: `Cell`, `Office`. Only used if `<!--#Phone2#-->` is in the template. |
+| `-Phone2Number` | No\* | Second phone number. Must be exactly 10 digits (no formatting). Only used if `<!--#Phone2#-->` is in the template. |
+| `-Phone2Extension` | No | Extension for the second phone number (1-6 digits). Only prompted if `Phone2` is in the template and both `-Phone2Type` and `-Phone2Number` were not both pre-supplied as parameters. |
+| `-Addr1` | No\* | First address line. Converted to uppercase. |
+| `-City1` | No\* | City for the first address. Converted to uppercase. |
+| `-State1` | No\* | State for the first address. Converted to uppercase. |
+| `-Zip1` | No\* | ZIP code for the first address. Converted to uppercase. |
+| `-Addr2` | No\* | Second address line. Converted to uppercase. |
+| `-City2` | No\* | City for the second address. Converted to uppercase. |
+| `-State2` | No\* | State for the second address. Converted to uppercase. |
+| `-Zip2` | No\* | ZIP code for the second address. Converted to uppercase. |
+| `-JobTitle` | No\* | Job title. Converted to uppercase. |
+| `-Region` | No\* | Region or territory. Converted to uppercase. |
+| `-QR` | No\* | Raw SVG content for the QR code (the inner `<g>...</g>` elements). Preserved as-is. If omitted, `-QrSvgPath` is used instead. |
+| `-QrSvgPath` | No\* | Path to a QR code SVG file. The script extracts content between the first `<g>` and last `</g>` elements. Ignored if `-QR` is supplied. |
+| `-FirstName` | No | First name of the card recipient. Used to auto-generate the suggested output file name. Only prompted when `-OutputSvgPath` is not supplied. |
+| `-LastName` | No | Last name of the card recipient. Used to auto-generate the suggested output file name. Only prompted when `-OutputSvgPath` is not supplied. |
+| `-OutputSvgPath` | No | Path where the populated SVG should be saved. Missing parent directories are created automatically. If the file already exists, the script prompts before overwriting. If omitted, a path is suggested in the format `.<br>\output\[TemplateName].[FirstName].[LastName].svg`, where any occurrence of `-Template` or `Template` in the template filename is removed. |
+| `-OverwriteWithoutPrompting` | No | Switch. When specified, overwrites an existing output file without prompting. |
+
+\* Prompted only if the corresponding placeholder is found in the selected template.
+
+**Phone Extension Prompting Rules**
+
+- If both `-Phone1Type` **and** `-Phone1Number` are supplied as parameters, `-Phone1Extension` is assumed absent and the user is **not** prompted for it.
+- If only one of `-Phone1Type` or `-Phone1Number` is supplied as a parameter (or neither), the user **is** prompted for the extension and informed they can leave it blank if none exists.
+- The same rules apply to the Phone 2 parameters.
+
+**Usage Examples**
+
+```powershell
+# Fully interactive — select a template from the menu, then provide all values when prompted
+.\New-BusinessCard.ps1
+
+# Provide a template and some values; prompts only for the remaining placeholders
+.\New-BusinessCard.ps1 -Template ".\karst\Karst-BusinessCard-Template.svg" -Email "jdoe@karst.com" -JobTitle "Project Manager" -Phone1Type Office -Phone1Number "2544890469"
+
+# Use an existing QR SVG file and write to a specific output path
+.\New-BusinessCard.ps1 -Template ".\karst\Karst-BusinessCard-Template.svg" -Email "jdoe@karst.com" -QrSvgPath ".\qr\jdoe-qr.svg" -OutputSvgPath ".\output\Karst-BusinessCard.John.Doe.svg" -OverwriteWithoutPrompting
+
+# Provide both phone entries as parameters (extension is not prompted for either)
+.\New-BusinessCard.ps1 -Phone1Type Cell -Phone1Number "7373766888" -Phone2Type Office -Phone2Number "2544890469" -Phone2Extension "5027"
+```
+
+### Utils / Credentials
+
+#### `Get-PronounceablePassword.ps1`
+
+Generates one or more pronounceable passwords with configurable total length, minimum digit/special-character counts, case style for the pronounceable portion, and ordered grouping of password elements.
+
+Password content is always grouped by element type and never interleaved. The three groups are:
+
+- Letters
+- Digits
+- SpecialChars
+
+For example, grouped output may look like `bazFOO348!@`, but never like `baz3FOO4!8@`.
+
+**Parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-Length` | No | Total password length. Minimum `12`. Default `14`. |
+| `-MinNumOfDigits` | No | Minimum number of digit characters. Range `1` to `3`. Default `1`. |
+| `-MinNumOfSpecialChars` | No | Minimum number of special characters. Range `1` to `3`. Default `1`. |
+| `-Case` | No | Case mode for the pronounceable letter segment. Valid values: `lowerUPPER`, `UPPERlower`, `CamelCase`, `lowerOnly`, `UPPEROnly`, `Random`. Default `Random` (randomly picks from `lowerUPPER`, `UPPERlower`, `CamelCase`). |
+| `-Order` | No | Group order mode. Valid values: `LettersDigitsSpecialChars`, `LettersSpecialCharsDigits`, `DigitsLettersSpecialChars`, `DigitsSpecialCharsLetters`, `SpecialCharsLettersDigits`, `SpecialCharsDigitsLetters`, `Random`. Default `Random`. |
+| `-Count` | No | Number of passwords to generate. Minimum `1`. Default `1`. |
+
+**Usage Examples**
+
+```powershell
+# Generate one password with default settings
+.\Get-PronounceablePassword.ps1
+
+# Generate one 16-character password with explicit case/order
+.\Get-PronounceablePassword.ps1 -Length 16 -MinNumOfDigits 3 -MinNumOfSpecialChars 2 -Case CamelCase -Order DigitsLettersSpecialChars
+
+# Generate five passwords
+.\Get-PronounceablePassword.ps1 -Count 5
+
+# Generate three passwords with fixed lowercase letters and fixed order
+.\Get-PronounceablePassword.ps1 -Count 3 -Case lowerOnly -Order LettersDigitsSpecialChars
 ```
 
 ## Usage Notes

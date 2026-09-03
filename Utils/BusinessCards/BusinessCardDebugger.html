@@ -1,0 +1,1886 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Business Card SVG Customizer</title>
+    <style>
+        :root {
+            --bg: #111827;
+            --panel: #1f2937;
+            --panel-alt: #0f172a;
+            --border: #374151;
+            --muted: #9ca3af;
+            --text: #e5e7eb;
+            --accent: #38bdf8;
+            --accent-strong: #0ea5e9;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --success: #34d399;
+            --shadow: rgba(15, 23, 42, 0.4);
+            --sidebar-width: 340px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            height: 100%;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        body {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .app {
+            display: flex;
+            width: 100%;
+            height: 100vh;
+        }
+
+        .sidebar {
+            background: var(--panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            width: var(--sidebar-width);
+            min-width: 250px;
+            max-width: 70vw;
+            flex: 0 0 auto;
+            position: relative;
+        }
+
+        .resize-handle {
+            width: 8px;
+            cursor: col-resize;
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.15), rgba(56, 189, 248, 0.04));
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            border-left: 1px solid rgba(255, 255, 255, 0.06);
+            flex: 0 0 auto;
+            touch-action: none;
+        }
+
+        .controls {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.7);
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        button,
+        .file-picker {
+            appearance: none;
+            border: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(59, 130, 246, 0.2), rgba(59, 130, 246, 0.1));
+            color: var(--text);
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: transform 0.15s ease, border-color 0.15s ease;
+        }
+
+        button:hover,
+        .file-picker:hover {
+            transform: translateY(-1px);
+            border-color: var(--accent);
+        }
+
+        .file-picker {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .file-picker input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .danger {
+            background: linear-gradient(180deg, rgba(239, 68, 68, 0.18), rgba(239, 68, 68, 0.08));
+        }
+
+        .section {
+            padding: 12px 16px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .section h3 {
+            margin: 0 0 10px;
+            font-size: 0.8rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        .list-box {
+            padding: 0 8px 8px;
+            overflow: auto;
+            flex: 1;
+        }
+
+        ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .template-list,
+        .element-tree {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .element-tree {
+            padding-left: 0;
+        }
+
+        .tree-options {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 8px 6px;
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        .tree-options input {
+            accent-color: var(--accent);
+        }
+
+        .tree-node.collapsed-node>summary {
+            background: rgba(251, 191, 36, 0.1);
+            border-color: rgba(251, 191, 36, 0.35);
+        }
+
+        .tree-node.hidden-node>summary {
+            opacity: 0.58;
+        }
+
+        .tree-node.ancestor-hidden>summary {
+            opacity: 0.48;
+            background: rgba(100, 116, 139, 0.1);
+        }
+
+        .tree-hidden-indicator {
+            color: #f87171;
+            font-size: 0.72rem;
+            flex: 0 0 auto;
+        }
+
+        .tree-part.tag-name {
+            color: #e5e7eb;
+        }
+
+        .tree-part.attribute-name {
+            color: #fbbf24;
+        }
+
+        .tree-part.element-id {
+            color: #67e8f9;
+        }
+
+        .tree-part.class-name {
+            color: #c4b5fd;
+        }
+
+        .compact-tree .tree-node summary {
+            min-height: 19px;
+            padding: 0 2px;
+            gap: 2px;
+            font-family: Consolas, "Cascadia Mono", monospace;
+            font-size: 0.72rem;
+        }
+
+        .compact-tree .tree-toggle {
+            width: 15px;
+            height: 15px;
+            min-width: 15px;
+            font-size: 0.64rem;
+        }
+
+        .compact-tree .tree-child-count {
+            height: 15px;
+            min-width: 8px;
+            padding: 0 5px;
+            font-size: 0.6rem;
+        }
+
+        .compact-tree .tree-node .tree-children {
+            margin-top: 1px;
+            margin-left: 7px;
+            padding-left: 5px;
+        }
+
+        .viewport-controls {
+            position: absolute;
+            right: 12px;
+            bottom: 12px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .floating-toolbar {
+            display: flex;
+            gap: 5px;
+            padding: 5px;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.9);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .floating-toolbar button {
+            min-width: 32px;
+            padding: 6px 8px;
+            font-size: 0.78rem;
+        }
+
+        .floating-toolbar button:disabled {
+            opacity: 0.38;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .zoom-toolbar {
+            margin-right: 4px;
+            padding-right: 9px;
+            border-right: 1px solid rgba(148, 163, 184, 0.3);
+        }
+
+        .zoom-level-button {
+            min-width: 52px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .info-panel,
+        .help-panel {
+            width: min(360px, calc(100vw - 40px));
+            max-height: min(440px, 60vh);
+            overflow: auto;
+            padding: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.96);
+            color: var(--text);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+            font-size: 0.8rem;
+        }
+
+        .info-panel[hidden],
+        .help-panel[hidden] {
+            display: none;
+        }
+
+        .info-panel h4,
+        .help-panel h4 {
+            margin: 0 0 8px;
+            color: var(--accent);
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .info-grid label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            color: var(--muted);
+        }
+
+        .info-grid input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 5px;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .info-details {
+            margin-top: 10px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: var(--muted);
+        }
+
+        .template-item,
+        .tree-item,
+        .tree-item-button {
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: 6px 8px;
+            background: rgba(148, 163, 184, 0.04);
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .template-item:hover,
+        .tree-item:hover,
+        .tree-item-button:hover {
+            border-color: rgba(56, 189, 248, 0.5);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .template-item.selected,
+        .tree-item.selected,
+        .tree-item-button.selected {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.7);
+        }
+
+        .tree-item-button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            color: var(--text);
+            font: inherit;
+            background: rgba(148, 163, 184, 0.03);
+            border: 1px solid transparent;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tree-node {
+            display: block;
+            margin: 0;
+            padding: 0;
+        }
+
+        .tree-node summary {
+            list-style: none;
+            cursor: default;
+            user-select: none;
+            padding: 2px 4px;
+            border-radius: 8px;
+            background: rgba(148, 163, 184, 0.03);
+            border: 1px solid transparent;
+            transition: background 0.15s ease, border-color 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            min-height: 24px;
+        }
+
+        .tree-node summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .tree-node summary:hover {
+            border-color: rgba(56, 189, 248, 0.5);
+            background: rgba(56, 189, 248, 0.08);
+        }
+
+        .tree-node summary .tree-label {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .tree-toggle {
+            appearance: none;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.35);
+            color: var(--text);
+            border-radius: 6px;
+            width: 18px;
+            height: 18px;
+            line-height: 1;
+            padding: 0;
+            flex: 0 0 18px;
+            font-size: 0.8rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tree-child-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: content-box;
+            min-width: 10px;
+            width: max-content;
+            height: 18px;
+            padding: 0 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            background: rgba(15, 23, 42, 0.35);
+            color: var(--muted);
+            font-size: 0.72rem;
+            line-height: 1;
+            white-space: nowrap;
+            flex: 0 0 auto;
+        }
+
+        .tree-toggle:hover {
+            border-color: var(--accent);
+            background: rgba(56, 189, 248, 0.14);
+        }
+
+        .tree-node .tree-children {
+            margin: 2px 0 0 10px;
+            padding-left: 8px;
+            border-left: 1px solid rgba(148, 163, 184, 0.28);
+        }
+
+        .tree-node .tree-children li {
+            margin-top: 2px;
+        }
+
+        .tree-item {
+            margin-left: 0;
+        }
+
+        .workspace {
+            background: var(--panel-alt);
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .stage {
+            flex: 1;
+            display: flex;
+            align-items: stretch;
+            justify-content: center;
+            padding: 16px;
+            min-height: 0;
+        }
+
+        .viewport {
+            width: 100%;
+            min-height: 500px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(31, 41, 55, 0.75));
+            box-shadow: 0 18px 36px var(--shadow);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .viewport.space-pan {
+            cursor: grab;
+        }
+
+        .viewport.space-pan svg,
+        .viewport.space-pan svg * {
+            cursor: grab !important;
+        }
+
+        .viewport.panning {
+            cursor: grabbing;
+        }
+
+        .viewport.panning svg,
+        .viewport.panning svg * {
+            cursor: grabbing !important;
+        }
+
+        .viewport svg {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+            background: white;
+            border-radius: 12px;
+            transform-origin: 0 0;
+        }
+
+        .viewport .editor-selected {
+            cursor: move;
+        }
+
+        .status {
+            min-height: 44px;
+            padding: 0 18px 14px;
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        .status.error {
+            color: var(--danger);
+        }
+
+        .status.success {
+            color: var(--success);
+        }
+
+        body.no-select {
+            user-select: none;
+        }
+
+        @media (max-width: 900px) {
+            .app {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                max-height: 46vh;
+                width: 100%;
+                max-width: 100%;
+            }
+
+            .resize-handle {
+                width: 100%;
+                height: 8px;
+                cursor: row-resize;
+                border-right: none;
+                border-left: none;
+                border-top: 1px solid rgba(255, 255, 255, 0.06);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="controls">
+                <div class="toolbar">
+                    <label class="file-picker">
+                        <span>Select Templates Folder</span>
+                        <input id="templatesFolderInput" type="file" webkitdirectory directory multiple />
+                    </label>
+                    <button id="saveButton" class="danger" type="button">Save</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h3>Templates</h3>
+            </div>
+            <div class="list-box">
+                <ul id="templateList" class="template-list"></ul>
+            </div>
+
+            <div class="section">
+                <h3>SVG Elements</h3>
+            </div>
+            <label class="tree-options">
+                <input id="compactTreeInput" type="checkbox" />
+                Compact tree
+            </label>
+            <div class="list-box">
+                <ul id="elementTree" class="element-tree"></ul>
+            </div>
+        </aside>
+
+        <div id="sidebarResizeHandle" class="resize-handle" title="Resize sidebar"></div>
+
+        <main class="workspace">
+            <div class="stage">
+                <div id="svgViewport" class="viewport" aria-live="polite">
+                    <div class="viewport-controls">
+                        <div id="infoPanel" class="info-panel" hidden>
+                            <h4>Selected element</h4>
+                            <div class="info-grid">
+                                <label>X <input id="infoX" type="number" step="0.0001" /></label>
+                                <label>Y <input id="infoY" type="number" step="0.0001" /></label>
+                                <label>Width <input id="infoWidth" type="number" step="0.0001" min="0" /></label>
+                                <label>Height <input id="infoHeight" type="number" step="0.0001" min="0" /></label>
+                            </div>
+                            <div id="infoDetails" class="info-details"></div>
+                        </div>
+                        <div id="helpPanel" class="help-panel" hidden>
+                            <h4>Business card editor help</h4>
+                            <div>Select an element in the tree or SVG to outline it. Drag it with the mouse, or use the
+                                arrow keys.</div>
+                            <div>Shift + mouse drag restricts movement vertically. Alt + mouse drag restricts movement
+                                horizontally.</div>
+                            <div>Arrow keys move by 1. Shift + Arrow moves by 10. Alt + Arrow moves by 0.1.</div>
+                            <div>Use the eye button to hide or show the selected element. The info button opens editable
+                                geometry and SVG attribute details.</div>
+                            <div>Scroll the mouse wheel over the image to zoom in or out, or use the +/− buttons. Click
+                                the zoom percentage to reset to 100%.</div>
+                            <div>Hold the space bar to change the cursor to a hand, then drag to pan around the image.
+                            </div>
+                        </div>
+                        <div class="floating-toolbar">
+                            <span class="zoom-toolbar">
+                                <button id="zoomOutButton" type="button" title="Zoom out" disabled>−</button>
+                                <button id="zoomLevelButton" class="zoom-level-button" type="button"
+                                    title="Reset zoom to 100%" disabled>100%</button>
+                                <button id="zoomInButton" type="button" title="Zoom in" disabled>+</button>
+                            </span>
+                            <button id="visibilityButton" type="button" title="Show or hide selected element"
+                                disabled>◉</button>
+                            <button id="infoButton" type="button" title="Show selected element information"
+                                disabled>i</button>
+                            <button id="helpButton" type="button" title="Open help">?</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="status" class="status">Select a templates folder to start.</div>
+        </main>
+    </div>
+
+    <script>
+        const state = {
+            svgFiles: [],
+            selectedTemplateName: null,
+            selectedElement: null,
+            currentSvg: null,
+            drag: null,
+            blockedFolderNames: new Set(),
+            templatesRootHandle: null,
+            currentFilename: null,
+            infoPanelOpen: false,
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+            spaceHeld: false,
+            pan: null,
+        };
+
+        const templateListEl = document.getElementById("templateList");
+        const elementTreeEl = document.getElementById("elementTree");
+        const svgViewportEl = document.getElementById("svgViewport");
+        const statusEl = document.getElementById("status");
+        const inputEl = document.getElementById("templatesFolderInput");
+        const saveButtonEl = document.getElementById("saveButton");
+        const sidebarResizeHandleEl = document.getElementById("sidebarResizeHandle");
+        const compactTreeInput = document.getElementById("compactTreeInput");
+        const visibilityButton = document.getElementById("visibilityButton");
+        const infoButton = document.getElementById("infoButton");
+        const helpButton = document.getElementById("helpButton");
+        const infoPanel = document.getElementById("infoPanel");
+        const helpPanel = document.getElementById("helpPanel");
+        const infoX = document.getElementById("infoX");
+        const infoY = document.getElementById("infoY");
+        const infoWidth = document.getElementById("infoWidth");
+        const infoHeight = document.getElementById("infoHeight");
+        const infoDetails = document.getElementById("infoDetails");
+        const zoomOutButton = document.getElementById("zoomOutButton");
+        const zoomInButton = document.getElementById("zoomInButton");
+        const zoomLevelButton = document.getElementById("zoomLevelButton");
+        const preferencesKey = "business-card-customizer.preferences.v1";
+
+        const preferences = loadPreferences();
+
+        function loadPreferences() {
+            const defaults = {
+                sidebarWidth: 340,
+                compactTree: false,
+                infoPanelOpen: false,
+                helpPanelOpen: false,
+                collapsedNodes: {},
+            };
+
+            try {
+                const stored = JSON.parse(localStorage.getItem(preferencesKey) || "{}");
+                return {
+                    ...defaults,
+                    ...stored,
+                    collapsedNodes: stored.collapsedNodes && typeof stored.collapsedNodes === "object" ? stored.collapsedNodes : {},
+                };
+            } catch (error) {
+                return defaults;
+            }
+        }
+
+        function savePreferences() {
+            try {
+                localStorage.setItem(preferencesKey, JSON.stringify(preferences));
+            } catch (error) {
+                // Preferences are optional when local storage is unavailable.
+            }
+        }
+
+        function getCollapsedNodeKey(node) {
+            return `${state.currentFilename || "unsaved"}:${node.getAttribute("data-editor-index") || "0"}`;
+        }
+
+        function setStatus(message, kind = "") {
+            statusEl.textContent = message;
+            statusEl.className = "status" + (kind ? ` ${kind}` : "");
+        }
+
+        function collectSvgFiles(fileList) {
+            return Array.from(fileList)
+                .filter((file) => file && /\.svg$/i.test(file.name))
+                .sort((a, b) => {
+                    const left = (a.webkitRelativePath || a.name).toLowerCase();
+                    const right = (b.webkitRelativePath || b.name).toLowerCase();
+                    return left.localeCompare(right);
+                });
+        }
+
+        function inferBlockedFolderNames(files) {
+            const blocked = new Set();
+            files.forEach((file) => {
+                const relativePath = file.webkitRelativePath || file.name;
+                const parts = relativePath.split("/").filter(Boolean);
+                parts.slice(0, -1).forEach((part) => blocked.add(part.toLowerCase()));
+                if (parts.length > 0) {
+                    blocked.add(parts[0].toLowerCase());
+                }
+            });
+            return blocked;
+        }
+
+        async function populateTemplates(files) {
+            if (!files.length) {
+                setStatus("No SVG templates were found in the selected folder.", "error");
+                return;
+            }
+
+            state.svgFiles = files;
+            state.blockedFolderNames = inferBlockedFolderNames(files);
+
+            templateListEl.innerHTML = "";
+            files.forEach((file) => {
+                const button = document.createElement("li");
+                const label = document.createElement("button");
+                label.type = "button";
+                label.className = "template-item";
+                label.textContent = file.webkitRelativePath || file.name;
+                label.dataset.filename = file.name;
+
+                label.addEventListener("click", async () => {
+                    state.selectedTemplateName = file.name;
+                    document.querySelectorAll(".template-item").forEach((item) => item.classList.toggle("selected", item.dataset.filename === file.name));
+                    setStatus(`Loading ${file.name}...`);
+                    try {
+                        await loadSvgFile(file);
+                    } catch (error) {
+                        setStatus(error.message || "Unable to load the selected template.", "error");
+                    }
+                });
+
+                button.appendChild(label);
+                templateListEl.appendChild(button);
+            });
+
+            const firstEntry = files[0];
+            state.selectedTemplateName = firstEntry.name;
+            const firstButton = templateListEl.querySelector('[data-filename="' + firstEntry.name + '"]');
+            if (firstButton) {
+                firstButton.classList.add("selected");
+            }
+
+            setStatus(`Loaded ${files.length} SVG template(s). Select one to begin editing.`);
+            await loadSvgFile(firstEntry);
+        }
+
+        async function loadSvgFile(file) {
+            const text = await file.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, "image/svg+xml");
+
+            const parserError = doc.querySelector("parsererror");
+            if (parserError) {
+                throw new Error("The selected SVG could not be parsed. Please make sure it is valid SVG.");
+            }
+
+            const svg = doc.documentElement;
+            if (!svg || svg.nodeName.toLowerCase() !== "svg") {
+                throw new Error("The selected file is not an SVG document.");
+            }
+
+            state.currentFilename = file.name;
+            state.currentSvg = null;
+            state.selectedElement = null;
+
+            const previousSvg = svgViewportEl.querySelector("svg");
+            if (previousSvg) {
+                previousSvg.remove();
+            }
+            const svgClone = svg.cloneNode(true);
+            svgClone.setAttribute("data-editor-root", "true");
+            svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svgClone.setAttribute("preserveAspectRatio", "xMidYMid meet");
+            svgClone.style.width = "100%";
+            svgClone.style.height = "100%";
+            svgClone.style.maxWidth = "100%";
+            svgClone.style.maxHeight = "100%";
+            svgClone.style.background = "white";
+            svgClone.style.display = "block";
+            state.currentSvg = svgClone;
+            svgViewportEl.appendChild(svgClone);
+
+            assignEditorIndexes(svgClone);
+            decorateSvgDom(svgClone);
+            buildElementTree(svgClone);
+            createSelectionOutline(svgClone);
+            syncSelectionToTree();
+            resetViewportTransform();
+            setZoomControlsEnabled(true);
+            setStatus(`Loaded ${file.name}. Click a shape or element to select it.`);
+        }
+
+        function assignEditorIndexes(root) {
+            let count = 0;
+            const walk = (node) => {
+                if (!node || node.nodeType !== 1) {
+                    return;
+                }
+
+                node.setAttribute("data-editor-index", String(count));
+                count += 1;
+
+                Array.from(node.children || []).forEach(walk);
+            };
+
+            walk(root);
+        }
+
+        function createSelectionOutline(svg) {
+            const overlay = svg.querySelector("#editor-selection-layer");
+            if (overlay) {
+                return overlay;
+            }
+
+            const layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            layer.setAttribute("id", "editor-selection-layer");
+            layer.setAttribute("pointer-events", "none");
+
+            const outline = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            outline.setAttribute("id", "editor-selection-outline");
+            outline.setAttribute("fill", "none");
+            outline.setAttribute("stroke", "#f85149");
+            outline.setAttribute("stroke-width", "1.5");
+            outline.setAttribute("stroke-dasharray", "7 5");
+            outline.setAttribute("vector-effect", "non-scaling-stroke");
+            outline.setAttribute("rx", "2");
+            layer.appendChild(outline);
+            svg.appendChild(layer);
+            return layer;
+        }
+
+        function decorateSvgDom(svg) {
+            const all = Array.from(svg.querySelectorAll("*"));
+            all.forEach((node) => {
+                if (node.id === "editor-selection-layer" || node.id === "editor-selection-outline") {
+                    return;
+                }
+                node.style.cursor = "default";
+                node.addEventListener("pointerdown", (event) => {
+                    if (!state.currentSvg) {
+                        return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const clicked = event.currentTarget;
+                    selectElement(clicked);
+                    beginDrag(event, clicked);
+                });
+            });
+
+            svg.addEventListener("pointerdown", (event) => {
+                if (event.target === svg) {
+                    clearSelection();
+                }
+            });
+        }
+
+        function buildElementTree(svg) {
+            elementTreeEl.innerHTML = "";
+            const rootDetails = document.createElement("details");
+            rootDetails.className = "tree-node";
+            rootDetails.open = getInitialTreeOpenState(svg);
+
+            const rootSummary = document.createElement("summary");
+            rootSummary.className = "tree-item-button";
+            rootSummary.dataset.index = svg.getAttribute("data-editor-index") || "0";
+
+            const rootHasChildren = svg.children.length > 0;
+            const rootToggle = createTreeToggle(rootDetails, rootHasChildren);
+            const rootLabel = createTreeLabel(svg, "svg");
+            const rootChildCount = createChildCountBadge(svg.children.length);
+            rootLabel.addEventListener("click", () => {
+                const matchingElement = svg.querySelector(`[data-editor-index="${rootSummary.dataset.index}"]`);
+                if (matchingElement) {
+                    selectElement(matchingElement);
+                }
+            });
+
+            if (rootToggle) {
+                rootToggle.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    rootDetails.open = !rootDetails.open;
+                    syncTreeToggle(rootDetails, rootToggle);
+                    syncTreeNodeState(rootDetails, svg);
+                    saveTreeNodeState(svg, rootDetails.open);
+                });
+            }
+
+            rootSummary.addEventListener("click", (event) => {
+                event.preventDefault();
+                const matchingElement = svg.querySelector(`[data-editor-index="${rootSummary.dataset.index}"]`);
+                if (matchingElement) {
+                    selectElement(matchingElement);
+                }
+            });
+
+            if (rootToggle) {
+                rootSummary.appendChild(rootToggle);
+            }
+            rootSummary.appendChild(rootLabel);
+            if (rootChildCount) {
+                rootSummary.appendChild(rootChildCount);
+            }
+            appendHiddenIndicator(rootSummary, svg);
+            syncTreeNodeState(rootDetails, svg);
+            rootDetails.appendChild(rootSummary);
+
+            const childList = document.createElement("ul");
+            childList.className = "tree-children";
+            Array.from(svg.children || []).forEach((child) => childList.appendChild(buildNode(child)));
+            rootDetails.appendChild(childList);
+            elementTreeEl.appendChild(rootDetails);
+        }
+
+        function buildNode(node) {
+            const item = document.createElement("li");
+            item.classList.add("tree-item");
+
+            const details = document.createElement("details");
+            details.className = "tree-node";
+            const children = Array.from(node.children || []);
+            const hasChildren = children.length > 0;
+            details.open = getInitialTreeOpenState(node);
+
+            const summary = document.createElement("summary");
+            summary.className = "tree-item-button";
+            summary.dataset.index = node.getAttribute("data-editor-index") || "0";
+            const toggle = createTreeToggle(details, hasChildren);
+            const label = createTreeLabel(node);
+            const childCount = createChildCountBadge(children.length);
+            label.addEventListener("click", () => {
+                const matchingElement = state.currentSvg.querySelector(`[data-editor-index="${summary.dataset.index}"]`);
+                if (matchingElement) {
+                    selectElement(matchingElement);
+                }
+            });
+
+            if (toggle) {
+                toggle.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    details.open = !details.open;
+                    syncTreeToggle(details, toggle);
+                    syncTreeNodeState(details, node);
+                    saveTreeNodeState(node, details.open);
+                });
+            }
+
+            summary.addEventListener("click", (event) => {
+                event.preventDefault();
+                const matchingElement = state.currentSvg.querySelector(`[data-editor-index="${summary.dataset.index}"]`);
+                if (matchingElement) {
+                    selectElement(matchingElement);
+                }
+            });
+
+            if (toggle) {
+                summary.appendChild(toggle);
+            }
+            summary.appendChild(label);
+            if (childCount) {
+                summary.appendChild(childCount);
+            }
+            appendHiddenIndicator(summary, node);
+
+            details.appendChild(summary);
+
+            if (children.length) {
+                const childList = document.createElement("ul");
+                childList.className = "tree-children";
+                children.forEach((child) => childList.appendChild(buildNode(child)));
+                details.appendChild(childList);
+            }
+
+            syncTreeNodeState(details, node);
+            item.appendChild(details);
+            return item;
+        }
+
+        function appendHiddenIndicator(summary, node) {
+            if (isExplicitlyHidden(node)) {
+                const indicator = document.createElement("span");
+                indicator.className = "tree-hidden-indicator";
+                indicator.textContent = "hidden";
+                indicator.title = "Element hidden";
+                summary.appendChild(indicator);
+            }
+        }
+
+        function syncTreeNodeState(details, node) {
+            details.classList.toggle("collapsed-node", !details.open && node.children.length > 0);
+            details.classList.toggle("hidden-node", isExplicitlyHidden(node));
+            details.classList.toggle("ancestor-hidden", !isExplicitlyHidden(node) && hasHiddenAncestor(node));
+        }
+
+        function isExplicitlyHidden(node) {
+            return node.style.display === "none";
+        }
+
+        function hasHiddenAncestor(node) {
+            let ancestor = node.parentElement;
+            while (ancestor && ancestor !== state.currentSvg) {
+                if (isExplicitlyHidden(ancestor)) {
+                    return true;
+                }
+                ancestor = ancestor.parentElement;
+            }
+            return false;
+        }
+
+        function isEffectivelyHidden(node) {
+            return isExplicitlyHidden(node) || hasHiddenAncestor(node);
+        }
+
+        function getInitialTreeOpenState(node) {
+            const storedState = preferences.collapsedNodes[getCollapsedNodeKey(node)];
+            if (typeof storedState === "boolean") {
+                return storedState;
+            }
+            return !shouldAutoCollapseNode(node);
+        }
+
+        function saveTreeNodeState(node, isOpen) {
+            preferences.collapsedNodes[getCollapsedNodeKey(node)] = isOpen;
+            savePreferences();
+        }
+
+        function createTreeLabel(node, fallbackLabel = "") {
+            const label = document.createElement("span");
+            label.className = "tree-label";
+
+            if (fallbackLabel) {
+                const tagPart = document.createElement("span");
+                tagPart.className = "tree-part tag-name";
+                tagPart.textContent = fallbackLabel;
+                label.appendChild(tagPart);
+                return label;
+            }
+
+            const tagPart = document.createElement("span");
+            tagPart.className = "tree-part tag-name";
+            tagPart.textContent = node.tagName.toLowerCase();
+            label.appendChild(tagPart);
+
+            const id = node.getAttribute("id");
+            if (id) {
+                const idPart = document.createElement("span");
+                idPart.className = "tree-part element-id";
+                idPart.textContent = `#${id}`;
+                label.appendChild(idPart);
+            }
+
+            const classNames = (node.getAttribute("class") || "").trim().split(/\s+/).filter(Boolean);
+            classNames.forEach((className) => {
+                const classPart = document.createElement("span");
+                classPart.className = "tree-part class-name";
+                classPart.textContent = `.${className}`;
+                label.appendChild(classPart);
+            });
+
+            const attributeNames = Array.from(node.attributes || [])
+                .map((attribute) => attribute.name)
+                .filter((name) => !["id", "class", "data-editor-index", "data-editor-root"].includes(name));
+            if (attributeNames.length) {
+                const attributePart = document.createElement("span");
+                attributePart.className = "tree-part attribute-name";
+                attributePart.textContent = ` [${attributeNames.join(", ")}]`;
+                label.appendChild(attributePart);
+            }
+
+            return label;
+        }
+
+        function createTreeToggle(details, hasChildren) {
+            if (!hasChildren) {
+                return null;
+            }
+
+            const toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "tree-toggle";
+            toggle.setAttribute("aria-label", details.open ? "Collapse item" : "Expand item");
+            toggle.textContent = details.open ? "▾" : "▸";
+            return toggle;
+        }
+
+        function syncTreeToggle(details, toggle) {
+            toggle.textContent = details.open ? "▾" : "▸";
+            toggle.setAttribute("aria-label", details.open ? "Collapse item" : "Expand item");
+        }
+
+        function createChildCountBadge(count) {
+            if (!count) {
+                return null;
+            }
+
+            const badge = document.createElement("span");
+            badge.className = "tree-child-count";
+            badge.textContent = String(count);
+            badge.title = `${count} child${count === 1 ? "" : "ren"}`;
+            return badge;
+        }
+
+        function getNodeSignature(node) {
+            const tag = node.tagName ? node.tagName.toLowerCase() : "";
+            const className = (node.getAttribute("class") || "").trim();
+            const classSuffix = className ? `.${className.split(/\s+/).join(".")}` : "";
+            return `${tag}${classSuffix}`;
+        }
+
+        function shouldAutoCollapseNode(node) {
+            const children = Array.from(node.children || []);
+            if (!children.length) {
+                return false;
+            }
+
+            const counts = new Map();
+            children.forEach((child) => {
+                const key = getNodeSignature(child);
+                counts.set(key, (counts.get(key) || 0) + 1);
+            });
+
+            for (const count of counts.values()) {
+                if (count > 5) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        function getTreeLabel(node) {
+            const tag = node.tagName.toLowerCase();
+            const id = node.getAttribute("id") ? `#${node.getAttribute("id")}` : "";
+            const className = node.getAttribute("class") ? `.${node.getAttribute("class").trim().split(/\s+/).join(".")}` : "";
+            return `${tag}${id}${className}`.replace(/\.+/g, ".").trim() || tag;
+        }
+
+        function clearSelection() {
+            if (state.selectedElement) {
+                state.selectedElement.classList.remove("editor-selected");
+            }
+            state.selectedElement = null;
+            syncSelectionToTree();
+            updateSelectionOutline();
+            updateFloatingControls();
+        }
+
+        function selectElement(element) {
+            if (!state.currentSvg || !element) {
+                return;
+            }
+
+            state.currentSvg.querySelectorAll(".editor-selected").forEach((node) => node.classList.remove("editor-selected"));
+
+            state.selectedElement = element;
+            element.classList.add("editor-selected");
+            syncSelectionToTree();
+            updateSelectionOutline();
+            updateFloatingControls();
+        }
+
+        function syncSelectionToTree() {
+            const allButtons = elementTreeEl.querySelectorAll(".tree-item-button");
+            allButtons.forEach((button) => {
+                const index = button.dataset.index;
+                const selected = state.selectedElement && state.selectedElement.getAttribute("data-editor-index") === index;
+                button.classList.toggle("selected", Boolean(selected));
+            });
+
+            elementTreeEl.querySelectorAll(".tree-node").forEach((details) => {
+                const index = details.querySelector(":scope > summary")?.dataset.index;
+                const node = index === undefined || !state.currentSvg ? null : state.currentSvg.querySelector(`[data-editor-index="${index}"]`);
+                if (node) {
+                    syncTreeNodeState(details, node);
+                }
+            });
+        }
+
+        function updateSelectionOutline() {
+            if (!state.currentSvg) {
+                return;
+            }
+
+            const rect = state.currentSvg.querySelector("#editor-selection-outline");
+            if (!rect) {
+                return;
+            }
+
+            if (!state.selectedElement) {
+                rect.setAttribute("x", 0);
+                rect.setAttribute("y", 0);
+                rect.setAttribute("width", 0);
+                rect.setAttribute("height", 0);
+                rect.setAttribute("display", "none");
+                return;
+            }
+
+            const bbox = getBBoxForElement(state.selectedElement);
+            if (!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)) {
+                rect.setAttribute("display", "none");
+                return;
+            }
+
+            if (bbox.width <= 0 || bbox.height <= 0) {
+                rect.setAttribute("display", "none");
+                return;
+            }
+
+            const padding = 3;
+            rect.setAttribute("display", "block");
+            rect.setAttribute("stroke", isEffectivelyHidden(state.selectedElement) ? "#facc15" : "#f85149");
+            rect.setAttribute("x", Number((bbox.x || 0) - padding).toFixed(2));
+            rect.setAttribute("y", Number((bbox.y || 0) - padding).toFixed(2));
+            rect.setAttribute("width", Math.max(0, Number((bbox.width || 0) + padding * 2).toFixed(2)));
+            rect.setAttribute("height", Math.max(0, Number((bbox.height || 0) + padding * 2).toFixed(2)));
+        }
+
+        function getBBoxForElement(element) {
+            const temporarilyShown = [];
+            try {
+                let ancestor = element;
+                while (ancestor && ancestor !== state.currentSvg) {
+                    if (isExplicitlyHidden(ancestor)) {
+                        temporarilyShown.push({element: ancestor, display: ancestor.style.display});
+                        ancestor.style.display = "";
+                    }
+                    ancestor = ancestor.parentElement;
+                }
+
+                if (state.currentSvg && typeof element.getBoundingClientRect === "function") {
+                    const svgMatrix = state.currentSvg.getScreenCTM && state.currentSvg.getScreenCTM();
+                    const elementRect = element.getBoundingClientRect();
+                    if (svgMatrix && elementRect.width > 0 && elementRect.height > 0) {
+                        const inverse = svgMatrix.inverse();
+                        const point = state.currentSvg.createSVGPoint();
+
+                        const corners = [
+                            [elementRect.left, elementRect.top],
+                            [elementRect.right, elementRect.top],
+                            [elementRect.left, elementRect.bottom],
+                            [elementRect.right, elementRect.bottom],
+                        ].map(([x, y]) => {
+                            point.x = x;
+                            point.y = y;
+                            const transformed = point.matrixTransform(inverse);
+                            return {x: transformed.x, y: transformed.y};
+                        });
+
+                        const xs = corners.map((corner) => corner.x);
+                        const ys = corners.map((corner) => corner.y);
+                        const minX = Math.min(...xs);
+                        const maxX = Math.max(...xs);
+                        const minY = Math.min(...ys);
+                        const maxY = Math.max(...ys);
+
+                        return {
+                            x: minX,
+                            y: minY,
+                            width: Math.max(0, maxX - minX),
+                            height: Math.max(0, maxY - minY),
+                        };
+                    }
+                }
+
+                if (typeof element.getBBox === "function") {
+                    return element.getBBox();
+                }
+            } catch (error) {
+                // Fall through for unsupported or invalid nodes.
+            } finally {
+                temporarilyShown.forEach(({element: hiddenElement, display}) => {
+                    hiddenElement.style.display = display;
+                });
+            }
+
+            return {x: 0, y: 0, width: 0, height: 0};
+        }
+
+        function beginDrag(event, element) {
+            if (!element) {
+                return;
+            }
+
+            state.drag = {
+                element,
+                lastX: event.clientX,
+                lastY: event.clientY,
+            };
+
+            document.body.classList.add("no-select");
+            document.addEventListener("pointermove", handleDrag);
+            document.addEventListener("pointerup", endDrag, {once: true});
+            document.addEventListener("pointercancel", endDrag, {once: true});
+        }
+
+        function clientDeltaToSvgDelta(dxClient, dyClient) {
+            if (!state.currentSvg || typeof state.currentSvg.getScreenCTM !== "function") {
+                return {dx: dxClient, dy: dyClient};
+            }
+
+            const ctm = state.currentSvg.getScreenCTM();
+            if (!ctm) {
+                return {dx: dxClient, dy: dyClient};
+            }
+
+            const inverse = ctm.inverse();
+            return {
+                dx: inverse.a * dxClient + inverse.c * dyClient,
+                dy: inverse.b * dxClient + inverse.d * dyClient,
+            };
+        }
+
+        function handleDrag(event) {
+            if (!state.drag) {
+                return;
+            }
+
+            const rawDx = event.movementX ?? (event.clientX - state.drag.lastX);
+            const rawDy = event.movementY ?? (event.clientY - state.drag.lastY);
+            let {dx, dy} = clientDeltaToSvgDelta(rawDx, rawDy);
+
+            if (event.shiftKey) {
+                dx = 0;
+            } else if (event.altKey) {
+                dy = 0;
+            }
+
+            if (dx || dy) {
+                moveElementBy(state.drag.element, dx, dy);
+                state.drag.lastX = event.clientX;
+                state.drag.lastY = event.clientY;
+            }
+        }
+
+        function endDrag() {
+            state.drag = null;
+            document.body.classList.remove("no-select");
+            document.removeEventListener("pointermove", handleDrag);
+        }
+
+        const MIN_ZOOM = 0.1;
+        const MAX_ZOOM = 8;
+        const STANDARD_ZOOM_LEVELS = [10, 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500, 600, 700, 800];
+        const TEN_PERCENT_ZOOM_LEVELS = (() => {
+            const levels = [];
+            for (let percent = Math.round(MIN_ZOOM * 100); percent <= Math.round(MAX_ZOOM * 100); percent += 10) {
+                levels.push(percent);
+            }
+            return levels;
+        })();
+
+        function nextZoomLevel(currentPercent, direction, levels) {
+            const epsilon = 1e-6;
+            if (direction > 0) {
+                const candidate = levels.find((level) => level > currentPercent + epsilon);
+                return candidate !== undefined ? candidate : levels[levels.length - 1];
+            }
+            const candidates = levels.filter((level) => level < currentPercent - epsilon);
+            return candidates.length ? candidates[candidates.length - 1] : levels[0];
+        }
+
+        function stepZoomAtCenter(direction, shiftKey) {
+            const levels = shiftKey ? TEN_PERCENT_ZOOM_LEVELS : STANDARD_ZOOM_LEVELS;
+            const nextPercent = nextZoomLevel(state.zoom * 100, direction, levels);
+            zoomAtCenter(nextPercent / 100);
+        }
+
+        function stepZoomAtPoint(direction, shiftKey, anchorClientX, anchorClientY) {
+            const levels = shiftKey ? TEN_PERCENT_ZOOM_LEVELS : STANDARD_ZOOM_LEVELS;
+            const nextPercent = nextZoomLevel(state.zoom * 100, direction, levels);
+            zoomAtPoint(nextPercent / 100, anchorClientX, anchorClientY);
+        }
+
+        function setZoomControlsEnabled(enabled) {
+            zoomOutButton.disabled = !enabled;
+            zoomInButton.disabled = !enabled;
+            zoomLevelButton.disabled = !enabled;
+        }
+
+        function resetViewportTransform() {
+            state.zoom = 1;
+            state.panX = 0;
+            state.panY = 0;
+            applyViewportTransform();
+        }
+
+        function applyViewportTransform() {
+            if (!state.currentSvg) {
+                return;
+            }
+            state.currentSvg.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+            zoomLevelButton.textContent = `${Math.round(state.zoom * 100)}%`;
+        }
+
+        function zoomAtPoint(nextZoom, anchorClientX, anchorClientY) {
+            if (!state.currentSvg) {
+                return;
+            }
+
+            const clampedZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+            const viewportRect = svgViewportEl.getBoundingClientRect();
+            const anchorX = anchorClientX - viewportRect.left;
+            const anchorY = anchorClientY - viewportRect.top;
+            const ratio = clampedZoom / state.zoom;
+
+            state.panX = anchorX - (anchorX - state.panX) * ratio;
+            state.panY = anchorY - (anchorY - state.panY) * ratio;
+            state.zoom = clampedZoom;
+            applyViewportTransform();
+        }
+
+        function zoomAtCenter(nextZoom) {
+            const viewportRect = svgViewportEl.getBoundingClientRect();
+            zoomAtPoint(nextZoom, viewportRect.left + viewportRect.width / 2, viewportRect.top + viewportRect.height / 2);
+        }
+
+        function beginPan(event) {
+            state.pan = {
+                startX: event.clientX,
+                startY: event.clientY,
+                startPanX: state.panX,
+                startPanY: state.panY,
+            };
+            svgViewportEl.classList.add("panning");
+            document.body.classList.add("no-select");
+            document.addEventListener("pointermove", handlePanMove);
+            document.addEventListener("pointerup", endPan, {once: true});
+            document.addEventListener("pointercancel", endPan, {once: true});
+        }
+
+        function handlePanMove(event) {
+            if (!state.pan) {
+                return;
+            }
+
+            state.panX = state.pan.startPanX + (event.clientX - state.pan.startX);
+            state.panY = state.pan.startPanY + (event.clientY - state.pan.startY);
+            applyViewportTransform();
+        }
+
+        function endPan() {
+            state.pan = null;
+            svgViewportEl.classList.remove("panning");
+            document.body.classList.remove("no-select");
+            document.removeEventListener("pointermove", handlePanMove);
+        }
+
+        function moveElementBy(element, dx, dy) {
+            if (!element) {
+                return;
+            }
+
+            const currentTransform = element.getAttribute("transform") || "";
+            const dxValue = Number(dx).toFixed(4);
+            const dyValue = Number(dy).toFixed(4);
+            const nextTransform = `${currentTransform} translate(${dxValue} ${dyValue})`.trim();
+            element.setAttribute("transform", nextTransform);
+            updateSelectionOutline();
+            updateInfoPanel();
+        }
+
+        function updateFloatingControls() {
+            const hasSelection = Boolean(state.selectedElement);
+            visibilityButton.disabled = !hasSelection;
+            infoButton.disabled = !hasSelection;
+            if (!hasSelection) {
+                infoPanel.hidden = true;
+                state.infoPanelOpen = false;
+            }
+            visibilityButton.textContent = hasSelection && state.selectedElement.style.display === "none" ? "◌" : "◉";
+            visibilityButton.title = hasSelection && state.selectedElement.style.display === "none" ? "Show selected element" : "Hide selected element";
+            updateInfoPanel();
+        }
+
+        function updateInfoPanel() {
+            if (!state.selectedElement) {
+                infoDetails.textContent = "No element selected.";
+                return;
+            }
+
+            const bbox = getBBoxForElement(state.selectedElement);
+            infoX.value = Number.isFinite(bbox.x) ? bbox.x.toFixed(4) : "";
+            infoY.value = Number.isFinite(bbox.y) ? bbox.y.toFixed(4) : "";
+            infoWidth.value = Number.isFinite(bbox.width) ? bbox.width.toFixed(4) : "";
+            infoHeight.value = Number.isFinite(bbox.height) ? bbox.height.toFixed(4) : "";
+
+            const computed = window.getComputedStyle(state.selectedElement);
+            const attributes = Array.from(state.selectedElement.attributes)
+                .filter((attribute) => !["data-editor-index", "data-editor-root"].includes(attribute.name))
+                .map((attribute) => `${attribute.name}="${attribute.value}"`)
+                .join("\n");
+            infoDetails.textContent = [
+                `Element: ${getTreeLabel(state.selectedElement)}`,
+                `Font family: ${computed.fontFamily}`,
+                `Font size: ${computed.fontSize}`,
+                `Font weight: ${computed.fontWeight}`,
+                `Font style: ${computed.fontStyle}`,
+                `Font stretch: ${computed.fontStretch}`,
+                `Letter spacing: ${computed.letterSpacing}`,
+                `Text decoration: ${computed.textDecorationLine}`,
+                `Attributes:\n${attributes || "(none)"}`,
+            ].join("\n");
+        }
+
+        function applyInfoGeometry(field, value) {
+            if (!state.selectedElement || !Number.isFinite(value)) {
+                return;
+            }
+
+            const element = state.selectedElement;
+            const bbox = getBBoxForElement(element);
+            if (field === "x" || field === "y") {
+                const delta = field === "x" ? value - bbox.x : value - bbox.y;
+                moveElementBy(element, field === "x" ? delta : 0, field === "y" ? delta : 0);
+                return;
+            }
+
+            const dimension = field === "width" ? "width" : "height";
+            if (element.hasAttribute(dimension)) {
+                element.setAttribute(dimension, String(Math.max(0, value)));
+            } else if (bbox[dimension] > 0) {
+                const scale = value / bbox[dimension];
+                const scaleX = dimension === "width" ? scale : 1;
+                const scaleY = dimension === "height" ? scale : 1;
+                const centerX = bbox.x + bbox.width / 2;
+                const centerY = bbox.y + bbox.height / 2;
+                element.setAttribute("transform", `${element.getAttribute("transform") || ""} translate(${centerX} ${centerY}) scale(${scaleX} ${scaleY}) translate(${-centerX} ${-centerY})`.trim());
+            }
+
+            updateSelectionOutline();
+            updateInfoPanel();
+        }
+
+        function updateTreeHiddenIndicators() {
+            elementTreeEl.querySelectorAll(".tree-node").forEach((details) => {
+                const summary = details.querySelector(":scope > summary");
+                if (!summary || !state.currentSvg) {
+                    return;
+                }
+
+                const index = summary.dataset.index;
+                const node = state.currentSvg.querySelector(`[data-editor-index="${index}"]`);
+                const existing = summary.querySelector(":scope > .tree-hidden-indicator");
+                if (existing) {
+                    existing.remove();
+                }
+                if (node && node.style.display === "none") {
+                    appendHiddenIndicator(summary, node);
+                }
+                if (node) {
+                    syncTreeNodeState(details, node);
+                }
+            });
+        }
+
+        function handleArrowKey(event) {
+            if (!state.currentSvg || !state.selectedElement) {
+                return;
+            }
+
+            const key = event.key;
+            const isArrow = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(key);
+            if (!isArrow) {
+                return;
+            }
+
+            event.preventDefault();
+
+            let step = 1;
+            if (event.shiftKey) {
+                step = 10;
+            } else if (event.altKey) {
+                step = 0.1;
+            }
+
+            let dx = 0;
+            let dy = 0;
+
+            if (key === "ArrowLeft") dx = -step;
+            if (key === "ArrowRight") dx = step;
+            if (key === "ArrowUp") dy = -step;
+            if (key === "ArrowDown") dy = step;
+
+            if (dx || dy) {
+                moveElementBy(state.selectedElement, dx, dy);
+            }
+        }
+
+        document.addEventListener("keydown", handleArrowKey);
+
+        function isTypingTarget(target) {
+            const tag = (target && target.tagName || "").toLowerCase();
+            return tag === "input" || tag === "textarea" || (target && target.isContentEditable);
+        }
+
+        document.addEventListener("keydown", (event) => {
+            if (event.code !== "Space" || event.repeat || isTypingTarget(event.target)) {
+                return;
+            }
+            event.preventDefault();
+            state.spaceHeld = true;
+            svgViewportEl.classList.add("space-pan");
+        });
+
+        document.addEventListener("keyup", (event) => {
+            if (event.code !== "Space") {
+                return;
+            }
+            state.spaceHeld = false;
+            svgViewportEl.classList.remove("space-pan");
+            if (state.pan) {
+                endPan();
+            }
+        });
+
+        svgViewportEl.addEventListener("pointerdown", (event) => {
+            if (!state.spaceHeld || event.button !== 0) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            beginPan(event);
+        }, {capture: true});
+
+        svgViewportEl.addEventListener("wheel", (event) => {
+            if (!state.currentSvg) {
+                return;
+            }
+            event.preventDefault();
+            const direction = event.deltaY < 0 ? 1 : -1;
+            stepZoomAtPoint(direction, event.shiftKey, event.clientX, event.clientY);
+        }, {passive: false});
+
+        zoomInButton.addEventListener("click", (event) => stepZoomAtCenter(1, event.shiftKey));
+        zoomOutButton.addEventListener("click", (event) => stepZoomAtCenter(-1, event.shiftKey));
+        zoomLevelButton.addEventListener("click", () => resetViewportTransform());
+
+        compactTreeInput.addEventListener("change", () => {
+            elementTreeEl.classList.toggle("compact-tree", compactTreeInput.checked);
+            preferences.compactTree = compactTreeInput.checked;
+            savePreferences();
+        });
+
+        visibilityButton.addEventListener("click", () => {
+            if (!state.selectedElement) {
+                return;
+            }
+            state.selectedElement.style.display = state.selectedElement.style.display === "none" ? "" : "none";
+            updateTreeHiddenIndicators();
+            updateFloatingControls();
+            updateSelectionOutline();
+        });
+
+        infoButton.addEventListener("click", () => {
+            if (!state.selectedElement) {
+                return;
+            }
+            state.infoPanelOpen = !state.infoPanelOpen;
+            infoPanel.hidden = !state.infoPanelOpen;
+            helpPanel.hidden = true;
+            preferences.infoPanelOpen = state.infoPanelOpen;
+            preferences.helpPanelOpen = false;
+            savePreferences();
+            updateInfoPanel();
+        });
+
+        helpButton.addEventListener("click", () => {
+            helpPanel.hidden = !helpPanel.hidden;
+            infoPanel.hidden = true;
+            state.infoPanelOpen = false;
+            preferences.helpPanelOpen = !helpPanel.hidden;
+            preferences.infoPanelOpen = false;
+            savePreferences();
+        });
+
+        [
+            [infoX, "x"],
+            [infoY, "y"],
+            [infoWidth, "width"],
+            [infoHeight, "height"],
+        ].forEach(([input, field]) => {
+            input.addEventListener("change", () => applyInfoGeometry(field, Number(input.value)));
+        });
+
+        function setSidebarWidth(width) {
+            const minWidth = 250;
+            const maxWidth = Math.max(minWidth, window.innerWidth - 320);
+            const nextWidth = Math.min(maxWidth, Math.max(minWidth, Math.round(width)));
+            document.documentElement.style.setProperty("--sidebar-width", `${nextWidth}px`);
+        }
+
+        let resizingSidebar = false;
+
+        sidebarResizeHandleEl.addEventListener("pointerdown", (event) => {
+            resizingSidebar = true;
+            sidebarResizeHandleEl.setPointerCapture(event.pointerId);
+            document.body.style.cursor = window.matchMedia("(max-width: 900px)").matches ? "row-resize" : "col-resize";
+            event.preventDefault();
+        });
+
+        sidebarResizeHandleEl.addEventListener("pointermove", (event) => {
+            if (!resizingSidebar) {
+                return;
+            }
+
+            const appRect = document.querySelector(".app").getBoundingClientRect();
+            if (window.matchMedia("(max-width: 900px)").matches) {
+                setSidebarWidth(event.clientY - appRect.top);
+                return;
+            }
+
+            setSidebarWidth(event.clientX - appRect.left);
+        });
+
+        sidebarResizeHandleEl.addEventListener("pointermove", () => {
+            if (!resizingSidebar) {
+                return;
+            }
+            preferences.sidebarWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width"), 10) || preferences.sidebarWidth;
+            savePreferences();
+        });
+
+        sidebarResizeHandleEl.addEventListener("pointerup", () => {
+            resizingSidebar = false;
+            document.body.style.cursor = "";
+        });
+
+        sidebarResizeHandleEl.addEventListener("pointercancel", () => {
+            resizingSidebar = false;
+            document.body.style.cursor = "";
+        });
+
+        setSidebarWidth(preferences.sidebarWidth);
+        compactTreeInput.checked = preferences.compactTree;
+        elementTreeEl.classList.toggle("compact-tree", preferences.compactTree);
+        state.infoPanelOpen = preferences.infoPanelOpen;
+        infoPanel.hidden = !preferences.infoPanelOpen;
+        helpPanel.hidden = !preferences.helpPanelOpen;
+        if (preferences.helpPanelOpen) {
+            infoPanel.hidden = true;
+            state.infoPanelOpen = false;
+        }
+
+        inputEl.addEventListener("change", async (event) => {
+            const files = collectSvgFiles(event.target.files || []);
+            if (!files.length) {
+                setStatus("The folder you selected does not contain any .svg files.", "error");
+                return;
+            }
+
+            setStatus("Reading templates folder...");
+            await populateTemplates(files);
+        });
+
+        saveButtonEl.addEventListener("click", async () => {
+            if (!state.currentSvg) {
+                setStatus("Load a template before trying to save.", "error");
+                return;
+            }
+
+            try {
+                const serialized = new XMLSerializer().serializeToString(state.currentSvg);
+                const fileName = state.currentFilename || "customized-business-card.svg";
+                const safeName = fileName.toLowerCase().endsWith(".svg") ? fileName : `${fileName}.svg`;
+
+                if (state.svgFiles.some((file) => file.name.toLowerCase() === safeName.toLowerCase()) && state.currentFilename && state.currentFilename.toLowerCase() !== safeName.toLowerCase()) {
+                    throw new Error("This filename matches an existing template. Choose a different name before saving.");
+                }
+
+                if (window.showSaveFilePicker) {
+                    const folderHandle = await window.showDirectoryPicker().catch(() => null);
+                    if (!folderHandle) {
+                        setStatus("Save cancelled.");
+                        return;
+                    }
+
+                    const handleName = (folderHandle.name || "").toLowerCase();
+                    if (handleName === "templates" || state.blockedFolderNames.has(handleName)) {
+                        throw new Error("Saving into the templates folder or a template subfolder is blocked.");
+                    }
+
+                    if (state.templatesRootHandle && (await folderHandle.isSameEntry(state.templatesRootHandle))) {
+                        throw new Error("Saving into the templates folder is blocked.");
+                    }
+
+                    const fileHandle = await window.showSaveFilePicker({
+                        suggestedName: safeName,
+                        startIn: folderHandle,
+                        types: [{
+                            description: "SVG Files",
+                            accept: {"image/svg+xml": [".svg"]},
+                        }],
+                    });
+
+                    const finalName = (fileHandle.name || safeName).toLowerCase();
+                    if (state.svgFiles.some((file) => file.name.toLowerCase() === finalName) && fileHandle.name.toLowerCase() !== state.currentFilename.toLowerCase()) {
+                        throw new Error("This would overwrite an existing template. Pick a different filename.");
+                    }
+
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(serialized);
+                    await writable.close();
+                    setStatus(`Saved as ${fileHandle.name}.`, "success");
+                    return;
+                }
+
+                const blob = new Blob([serialized], {type: "image/svg+xml;charset=utf-8"});
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = safeName;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(url);
+                setStatus(`Downloaded ${safeName}. Save it outside the templates folder.`, "success");
+            } catch (error) {
+                setStatus(error.message || "Unable to save the SVG file.", "error");
+            }
+        });
+
+        setStatus("Select a templates folder to start.");
+    </script>
+</body>
+
+</html>

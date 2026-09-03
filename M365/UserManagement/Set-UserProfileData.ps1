@@ -20,13 +20,12 @@ Press Enter to keep the current value unchanged. Press Tab to skip the field unc
 For string-collection fields, values are entered as JSON arrays:
 ["value1", "value2", "value3"]
 
-Custom security attributes in HRPersonalData are read with Get-MgUserSecurityAttribute and
-written with Update-MgUserSecurityAttribute after ensuring assignment with
-New-MgUserSecurityAttributeAssignment.
+Custom security attributes in HRPersonalData are read from the user's customSecurityAttributes
+property and written with Update-MgUser.
 
 ManagerEmailAddress is handled with Set-MgUserManagerByRef.
-IsSecondaryAccount and IsHoxhuntDisabled map to Exchange Online extension attributes
-(CustomAttribute1/CustomAttribute2) and are stored as strings "True" or "False".
+IsSecondaryAccount and IsHoxhuntDisabled map to Microsoft Graph onPremisesExtensionAttributes
+(extensionAttribute1/extensionAttribute2) and are stored as strings "True" or "False".
 
 .PARAMETER UserPrincipalName
 The user UPN to update. If omitted, the script prompts for it.
@@ -38,8 +37,8 @@ A freeform profile summary.
 Birthday in YYYY-MM-DD format.
 
 .PARAMETER BusinessPhones
-JSON array of office phone values. Example:
-["(512) 555-1234", "(512) 555-1234 ext. 101"]
+JSON array of office phone values. If entering as a parameter value directly in the command line, use single quotes around the JSON array. Example:
+'["(512) 555-1234", "(512) 555-1234 ext. 101"]'
 
 .PARAMETER City
 Primary business city. Maximum length: 128.
@@ -52,7 +51,8 @@ Company-issued mobile phone in format (###) ###-####.
 Custom security attribute: HRPersonalData.CompanyMobilePhone.
 
 .PARAMETER Country
-Primary business country/region full name. Maximum length: 128.
+Primary business country/region full name. Maximum length: 128. Example:
+United States
 
 .PARAMETER Department
 Department name. Maximum length: 64.
@@ -169,7 +169,7 @@ Required Graph scopes:
 - Directory.ReadWrite.All
 - CustomSecAttributeAssignment.ReadWrite.All
 
-ExchangeOnlineManagement is required for extension attributes 1/2 updates.
+Hoxhunt extension attributes are updated through Microsoft Graph.
 #>
 
 param(
@@ -341,7 +341,10 @@ function Connect-MgGraphSessionIfNeeded {
     $requiredScopes = @(
         "User.ReadWrite.All",
         "Directory.ReadWrite.All",
-        "CustomSecAttributeAssignment.ReadWrite.All"
+        "CustomSecAttributeAssignment.ReadWrite.All",
+        "User-Phone.ReadWrite.All",
+        "User-Mail.ReadWrite.All",
+        "User-LifeCycleInfo.ReadWrite.All"
     )
 
     $context = Get-MgContext -ErrorAction SilentlyContinue
@@ -363,36 +366,6 @@ function Connect-MgGraphSessionIfNeeded {
     }
 }
 
-function Initialize-ExchangeOnlineModule {
-    if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {
-        Write-Host "ExchangeOnlineManagement module is not installed." -ForegroundColor Yellow
-        if (Read-YesNoResponse -Prompt "Install ExchangeOnlineManagement now?" -DefaultValue $false) {
-            Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber
-        } else {
-            Write-Host "Cannot update extension attributes without ExchangeOnlineManagement. Exiting." -ForegroundColor Red
-            exit 1
-        }
-    }
-
-    if (-not (Get-Module ExchangeOnlineManagement)) {
-        Import-Module ExchangeOnlineManagement -ErrorAction Stop | Out-Null
-    }
-}
-
-function Connect-ExchangeOnlineIfNeeded {
-    $connected = $false
-    try {
-        $connected = [bool](Get-ConnectionInformation -ErrorAction Stop)
-    } catch {
-        $connected = $false
-    }
-
-    if (-not $connected) {
-        Write-Host "Connecting to Exchange Online (device code auth)..." -ForegroundColor Cyan
-        Connect-ExchangeOnline -ShowBanner:$false -Device
-    }
-}
-
 function Test-ValidEmail {
     param([string]$Value)
 
@@ -400,6 +373,31 @@ function Test-ValidEmail {
     if ($Value.Length -gt 254) { return $false }
 
     return ($Value -match '^[A-Za-z0-9][A-Za-z0-9._%+\-]*[A-Za-z0-9]?@([A-Za-z0-9][A-Za-z0-9\-]{0,61}[A-Za-z0-9]?\.)+[A-Za-z]{2,}$')
+}
+
+function Get-JsonNodeValue {
+    param(
+        [AllowNull()]
+        [object]$Node,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($null -eq $Node) { return $null }
+
+    if ($Node.PSObject.Properties.Match('AdditionalProperties').Count -gt 0 -and $null -ne $Node.AdditionalProperties) {
+        $nested = $Node.AdditionalProperties
+        if ($nested.PSObject.Properties.Match($Name).Count -gt 0) {
+            return $nested.$Name
+        }
+    }
+
+    if ($Node.PSObject.Properties.Match($Name).Count -gt 0) {
+        return $Node.$Name
+    }
+
+    return $null
 }
 
 function Convert-StringCollectionLiteralToArray {
@@ -417,10 +415,11 @@ function Convert-StringCollectionLiteralToArray {
     }
 
     try {
-        $parsed = $trimmed | ConvertFrom-Json -ErrorAction Stop
-        if ($parsed -isnot [array]) {
+        if ($trimmed -notmatch '^\[.*\]$') {
             throw "Value is not an array."
         }
+
+        $parsed = @($trimmed | ConvertFrom-Json -ErrorAction Stop)
 
         $result = @()
         foreach ($item in $parsed) {
@@ -436,7 +435,7 @@ function Convert-StringCollectionLiteralToArray {
 
         return $result
     } catch {
-        Write-Host "Invalid format for $FieldName. Use JSON array format like [\"value1\", \"value2\"]." -ForegroundColor Red
+        Write-Host 'Invalid format. Use JSON array format like ["value1", "value2"].' -ForegroundColor Red
         throw
     }
 }
@@ -445,12 +444,12 @@ function Convert-ArrayToStringCollectionLiteral {
     param([object]$Value)
 
     if ($null -eq $Value) {
-        return "[\"\"]"
+        return '[""]'
     }
 
     $arr = @($Value)
     if ($arr.Count -eq 0) {
-        return "[\"\"]"
+        return '[""]'
     }
 
     $quoted = $arr | ForEach-Object {
@@ -487,11 +486,11 @@ function Read-EditableInput {
     }
 
     $cursor = $InitialCursorIndex
-    [Console]::Write("$Prompt: ")
+    [Console]::Write("${Prompt}: ")
 
     while ($true) {
         $text = -join $chars
-        $line = "$Prompt: $text"
+        $line = "${Prompt}: $text"
 
         [Console]::Write("`r")
         [Console]::Write($line)
@@ -501,7 +500,7 @@ function Read-EditableInput {
             [Console]::Write(" " * $pad)
         }
 
-        [Console]::Write("`r$Prompt: ")
+        [Console]::Write("`r${Prompt}: ")
         if ($cursor -gt 0) {
             $prefix = -join ($chars.GetRange(0, $cursor))
             [Console]::Write($prefix)
@@ -781,13 +780,16 @@ function Set-CustomSecurityAttributes {
 
     if ($Attributes.Count -eq 0) { return }
 
-    New-MgUserSecurityAttributeAssignment -UserId $UserId -AttributeSet "HRPersonalData" -ErrorAction SilentlyContinue | Out-Null
+    # Custom security attributes are set via Update-MgUser, not via a dedicated attribute cmdlet.
+    $Attributes["@odata.type"] = "#Microsoft.DirectoryServices.CustomSecurityAttributeValue"
 
     $body = @{
-        "HRPersonalData" = $Attributes
+        customSecurityAttributes = @{
+            "HRPersonalData" = $Attributes
+        }
     }
 
-    Update-MgUserSecurityAttribute -UserId $UserId -BodyParameter $body -ErrorAction Stop | Out-Null
+    Update-MgUser -UserId $UserId -BodyParameter $body -ErrorAction Stop | Out-Null
 }
 
 $fields = @(
@@ -813,8 +815,8 @@ $fields = @(
     [PSCustomObject]@{ Name = "HomeState"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = "HomeState"; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "HomePostalCode"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = "HomePostalCode"; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "Interests"; Type = "String collection"; GraphProperty = "interests"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
-    [PSCustomObject]@{ Name = "IsSecondaryAccount"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = $null; ExtensionAttribute = "CustomAttribute1" },
-    [PSCustomObject]@{ Name = "IsHoxhuntDisabled"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = $null; ExtensionAttribute = "CustomAttribute2" },
+    [PSCustomObject]@{ Name = "IsSecondaryAccount"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = $null; ExtensionAttribute = "extensionAttribute1" },
+    [PSCustomObject]@{ Name = "IsHoxhuntDisabled"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = $null; ExtensionAttribute = "extensionAttribute2" },
     [PSCustomObject]@{ Name = "JobTitle"; Type = "String"; GraphProperty = "jobTitle"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "ManagerEmailAddress"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "MobilePhone"; Type = "String"; GraphProperty = "mobilePhone"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
@@ -855,7 +857,8 @@ $graphProperties = @(
     "id", "userPrincipalName", "aboutMe", "birthday", "businessPhones", "city", "companyName", "country", "department",
     "displayName", "employeeHireDate", "employeeLeaveDateTime", "employeeId", "employeeType", "faxNumber", "givenName",
     "interests", "jobTitle", "mobilePhone", "officeLocation", "otherMails", "pastProjects", "postalCode", "preferredLanguage",
-    "preferredName", "responsibilities", "schools", "showInAddressList", "skills", "state", "streetAddress", "surname"
+    "preferredName", "responsibilities", "schools", "showInAddressList", "skills", "state", "streetAddress", "surname", "onPremisesExtensionAttributes",
+    "customSecurityAttributes"
 )
 
 $currentUser = Get-MgUser -UserId $UserPrincipalName -Property ($graphProperties -join ",") -ErrorAction Stop
@@ -863,11 +866,16 @@ $currentUser = Get-MgUser -UserId $UserPrincipalName -Property ($graphProperties
 # Pull current custom security attributes.
 $currentCustom = @{}
 try {
-    $securityAttrs = Get-MgUserSecurityAttribute -UserId $UserPrincipalName -AttributeSet "HRPersonalData" -ErrorAction SilentlyContinue
-    if ($null -ne $securityAttrs -and $null -ne $securityAttrs.AdditionalProperties) {
+    # Round-trip through JSON so nested open-type data is normalized regardless of how the SDK
+    # deserialized it (IDictionary vs. PSCustomObject vs. strongly-typed model all vary by version).
+    $customSecurityAttributesJson = $currentUser.CustomSecurityAttributes | ConvertTo-Json -Depth 10 -ErrorAction Stop
+    $customSecurityAttributes = $customSecurityAttributesJson | ConvertFrom-Json -ErrorAction Stop
+    $hrPersonalData = Get-JsonNodeValue -Node $customSecurityAttributes -Name "HRPersonalData"
+    if ($null -ne $hrPersonalData) {
         foreach ($name in @("CompanyMobilePhone", "EmergencyContactFullName", "EmergencyContactPhone", "HomeStreetAddress", "HomeCity", "HomeState", "HomePostalCode", "PersonalMobilePhone")) {
-            if ($securityAttrs.AdditionalProperties.ContainsKey($name)) {
-                $currentCustom[$name] = [string]$securityAttrs.AdditionalProperties[$name]
+            $value = Get-JsonNodeValue -Node $hrPersonalData -Name $name
+            if ($null -ne $value) {
+                $currentCustom[$name] = [string]$value
             }
         }
     }
@@ -884,24 +892,6 @@ try {
     }
 } catch {
     $currentManagerEmail = ""
-}
-
-# Pull current extension attributes only if needed.
-$needsExtensionAttributeFlow = $promptAllFields -or ($boundProfileParameters -contains "IsSecondaryAccount") -or ($boundProfileParameters -contains "IsHoxhuntDisabled")
-$currentCustomAttribute1 = ""
-$currentCustomAttribute2 = ""
-
-if ($needsExtensionAttributeFlow) {
-    Initialize-ExchangeOnlineModule
-    Connect-ExchangeOnlineIfNeeded
-
-    try {
-        $exoUser = Get-User -Identity $UserPrincipalName -ErrorAction Stop
-        $currentCustomAttribute1 = [string]$exoUser.CustomAttribute1
-        $currentCustomAttribute2 = [string]$exoUser.CustomAttribute2
-    } catch {
-        Write-Host "Could not read current extension attributes for $UserPrincipalName: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
 }
 
 $graphUpdates = @{}
@@ -937,10 +927,8 @@ foreach ($field in $fields) {
         $currentValue = $currentUser.$($field.GraphProperty)
     } elseif ($field.CustomSecurityAttribute) {
         $currentValue = if ($currentCustom.ContainsKey($field.CustomSecurityAttribute)) { [string]$currentCustom[$field.CustomSecurityAttribute] } else { "" }
-    } elseif ($field.ExtensionAttribute -eq "CustomAttribute1") {
-        $currentValue = $currentCustomAttribute1
-    } elseif ($field.ExtensionAttribute -eq "CustomAttribute2") {
-        $currentValue = $currentCustomAttribute2
+    } elseif ($field.ExtensionAttribute) {
+        $currentValue = $currentUser.OnPremisesExtensionAttributes.($field.ExtensionAttribute)
     }
 
     if ($fieldName -eq "ManagerEmailAddress") {
@@ -956,7 +944,7 @@ foreach ($field in $fields) {
 
         if ($field.Type -eq "String collection") {
             $initialDisplay = Convert-ArrayToStringCollectionLiteral -Value $currentValue
-            if ($initialDisplay -eq "[\"\"]") {
+            if ($initialDisplay -eq '[""]') {
                 $initialCursor = 2
             }
         } elseif ($field.Type -eq "Boolean") {
@@ -1025,11 +1013,7 @@ foreach ($field in $fields) {
     }
 
     if ($field.ExtensionAttribute) {
-        if ($field.ExtensionAttribute -eq "CustomAttribute1") {
-            $extensionUpdates["CustomAttribute1"] = if ([string]::IsNullOrWhiteSpace([string]$finalValue)) { $null } else { [string]$finalValue }
-        } elseif ($field.ExtensionAttribute -eq "CustomAttribute2") {
-            $extensionUpdates["CustomAttribute2"] = if ([string]::IsNullOrWhiteSpace([string]$finalValue)) { $null } else { [string]$finalValue }
-        }
+        $extensionUpdates[$field.ExtensionAttribute] = if ([string]::IsNullOrWhiteSpace([string]$finalValue)) { $null } else { [string]$finalValue }
 
         $changedFields += $fieldName
         continue
@@ -1066,7 +1050,11 @@ foreach ($field in $fields) {
                 $graphUpdates[$field.GraphProperty] = [bool]$finalValue
             }
         } else {
-            $graphUpdates[$field.GraphProperty] = if ([string]::IsNullOrWhiteSpace([string]$finalValue)) { $null } else { [string]$finalValue }
+            if ($field.Type -eq "DateTimeOffset" -and -not [string]::IsNullOrWhiteSpace([string]$finalValue)) {
+                $graphUpdates[$field.GraphProperty] = "$finalValue`T00:00:00Z"
+            } else {
+                $graphUpdates[$field.GraphProperty] = if ([string]::IsNullOrWhiteSpace([string]$finalValue)) { $null } else { [string]$finalValue }
+            }
         }
 
         $changedFields += $fieldName
@@ -1078,9 +1066,22 @@ if ($changedFields.Count -eq 0) {
     exit 0
 }
 
-# Submit Graph profile updates.
-if ($graphUpdates.Count -gt 0) {
-    Update-MgUser -UserId $UserPrincipalName -BodyParameter $graphUpdates -ErrorAction Stop | Out-Null
+# Microsoft Graph requires these properties to be updated in their own PATCH request.
+$singlePropertyGraphNames = @(
+    "aboutMe", "birthday", "interests", "pastProjects", "responsibilities", "schools", "skills"
+)
+$generalGraphUpdates = @{}
+
+foreach ($propertyName in $graphUpdates.Keys) {
+    if ($propertyName -in $singlePropertyGraphNames) {
+        Update-MgUser -UserId $UserPrincipalName -BodyParameter @{ $propertyName = $graphUpdates[$propertyName] } -ErrorAction Stop | Out-Null
+    } else {
+        $generalGraphUpdates[$propertyName] = $graphUpdates[$propertyName]
+    }
+}
+
+if ($generalGraphUpdates.Count -gt 0) {
+    Update-MgUser -UserId $UserPrincipalName -BodyParameter $generalGraphUpdates -ErrorAction Stop | Out-Null
 }
 
 # Submit custom security attribute updates.
@@ -1090,16 +1091,7 @@ if ($customSecurityUpdates.Count -gt 0) {
 
 # Submit Exchange extension attribute updates.
 if ($extensionUpdates.Count -gt 0) {
-    if (-not $needsExtensionAttributeFlow) {
-        Initialize-ExchangeOnlineModule
-        Connect-ExchangeOnlineIfNeeded
-    }
-
-    $setUserParams = @{ Identity = $UserPrincipalName }
-    if ($extensionUpdates.ContainsKey("CustomAttribute1")) { $setUserParams["CustomAttribute1"] = $extensionUpdates["CustomAttribute1"] }
-    if ($extensionUpdates.ContainsKey("CustomAttribute2")) { $setUserParams["CustomAttribute2"] = $extensionUpdates["CustomAttribute2"] }
-
-    Set-User @setUserParams -ErrorAction Stop | Out-Null
+    Update-MgUser -UserId $UserPrincipalName -OnPremisesExtensionAttributes $extensionUpdates -ErrorAction Stop | Out-Null
 }
 
 Write-Host "" 
