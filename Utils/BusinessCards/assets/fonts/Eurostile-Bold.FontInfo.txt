@@ -1,0 +1,2 @@
+Family name: 'Eurostile'
+PostScript name: 'Eurostile-Bold'

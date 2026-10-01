@@ -1,0 +1,2 @@
+Family name: 'Cherry Bomb'
+PostScript name: 'CherryBomb-Regular'

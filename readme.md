@@ -35,8 +35,17 @@ KarstUtilityScripts/
 |       |-- Set-ExtensionAttribute.ps1
 |       |-- Get-UserProfileData.ps1
 |       |-- Set-UserProfileData.ps1
-|       `-- UserProfileData-PropertiesInfo.xlsx
+|       `-- UserProfileData-PropertiesInfo.md
 |-- Utils/
+|   |-- BusinessCards/
+|   |   |-- BusinessCardCustomizer.html
+|   |   |-- New-TemplateBundle.ps1
+|   |   |-- assets/
+|   |   |   `-- fonts/
+|   |   `-- templates/
+|   |       `-- <company>/
+|   |           |-- back/*.svg
+|   |           `-- front/*.svg
 |   `-- Credentials/
 |       |-- Get-DinoPass.ps1
 |       `-- Get-PronounceablePassword.ps1
@@ -514,6 +523,56 @@ Additional supported parameters map directly to the profile schema in the script
 .\Set-UserProfileData.ps1 -UserPrincipalName "jdoe@contoso.com" -Responsibilities '["Approve invoices", "Manage monthly close"]'
 ```
 
+### Utils / BusinessCards
+
+#### `BusinessCardCustomizer.html`
+
+A self-contained, single-file browser application for visually customizing and exporting company business cards — no server, build step, or installation required. Just open the HTML file directly in a browser (double-click it, or open it via `file://`).
+
+All SVG templates and embedded fonts are bundled directly inside the HTML file (compressed/deduplicated — see `New-TemplateBundle.ps1` below), so templates load automatically with no folder picker needed in the common case.
+
+**Core workflow**
+
+1. **Pick a back template** — a capability-based picker shows small icon "chips" (Region / Address / Phone / QR) that light up to indicate what each template supports, with a count badge for multiple addresses/phone numbers and a small overlay badge indicating typed addresses (e.g. "Office"/"Mailing"). Hover any entry for a live mini preview rendered with your current card details; click to select.
+2. **Fill in card details** — name, job title, region, phone number(s), email, and address(es). Fields are shown/hidden automatically based on which placeholders the selected template actually supports. Job title text automatically shrinks its letter-spacing and/or wraps to a second line if it's too long to fit without overlapping other elements on the card.
+3. **Generate a QR code** (if the template includes one) — builds a scannable vCard QR code from the entered contact details and embeds it directly into the card artwork.
+4. **Fine-tune the layout** (optional) — the live preview lets you select, drag, and nudge (arrow keys, or a dedicated nudge toolbar with adjustable step size) individual elements if minor repositioning is needed. Undo/redo, zoom/pan, and a collapsible SVG element tree are available via the floating toolbars around the preview.
+5. **Pick a front template**, then use **Flip** to preview front/back together before saving.
+6. **Save** — exports the finished card(s) as PDF (vector-outlined or embedded fonts) or raw SVG, named using an editable filename pattern.
+
+**Requirements:** A modern desktop web browser. Chrome, Edge, and Firefox should all work, but I suggest using Chrome or Edge due to some PDF/formatting issues with Firefox (probably not actually an issue, but I have not confirmed). No PowerShell, server, or internet connection is required except for QR code generation (uses the public `api.qrserver.com` service) and loading the `jspdf`/`svg2pdf.js` libraries from a CDN for PDF export.
+
+**Usage**
+
+```text
+Open Utils\BusinessCards\BusinessCardCustomizer.html directly in a browser.
+```
+
+#### `New-TemplateBundle.ps1`
+
+A build/maintenance script that packages the SVG templates (and fonts) under `templates/` and `assets/fonts/` into the `TEMPLATE_BUNDLE_BASE64` constant embedded inside `BusinessCardCustomizer.html`, so the HTML file can load templates automatically with no folder picker.
+
+Since templates are typically near-identical copies of one another (same background artwork, only a small region differing per variant), each file's bytes are split into content-defined chunks using a rolling hash (Gear/FastCDC-style) so chunk boundaries re-synchronize after edits instead of drifting like fixed-offset chunking would. Chunks are hashed (SHA-256) and deduplicated into a shared asset pool, then the resulting manifest is JSON-serialized, gzip-compressed, base64-encoded, and written into the HTML file.
+
+**Run this script any time an SVG template (or font) under `templates/`/`assets/fonts/` is added, removed, or edited**, so the changes are reflected the next time `BusinessCardCustomizer.html` is opened.
+
+**Parameters**
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-TemplatesRoot` | No | Path to the templates directory. Defaults to the `templates` folder next to the script. |
+| `-FontsRoot` | No | Path to a directory of `.ttf` font files to embed, matched at runtime against `@font-face` names declared in each SVG. Defaults to `assets/fonts` next to the script. Skipped with a warning if missing. |
+| `-HtmlPath` | No | Path to `BusinessCardCustomizer.html`. Defaults to the file next to the script. |
+| `-MinChunkSize` / `-MaxChunkSize` | No | Minimum/maximum content-defined chunk size in bytes. Defaults `1024` / `32768`. |
+| `-AverageChunkBits` | No | Mask bits targeting an average chunk size of 2^N bytes. Defaults to `12` (4096 bytes). |
+
+**Usage Examples**
+
+```powershell
+# Rebuild the embedded template bundle using default paths, after adding/editing a template
+.\New-TemplateBundle.ps1
+```
+
 ### Utils / Credentials
 
 #### `Get-DinoPass.ps1`
@@ -650,6 +709,12 @@ Contact message template shown or sent to end users to have IT unlock a device t
 #### `Re-authentication_Dialog.txt`
 
 End-user instructions for handling the Cloudflare WARP "Re-Authentication is required" prompt when using Stonemont/Equipment360, including the accompanying screenshots `E360_Launcher_Instructions.png`, `WarpLoginWebpage.png`, and `WarpReauthenticationNotification.png`.
+
+### UserInstructions / Equipment360
+
+#### `Equipment360-iPad-RDP-Setup-Instructions.Cloudflare.md`
+
+Step-by-step instructions for accessing the desktop version of Equipment 360 from an iPad using Cloudflare One, Windows App, and an RDP connection file, including setup, saved credentials, session controls, and touch gestures.
 
 ### UserInstructions / Email
 
