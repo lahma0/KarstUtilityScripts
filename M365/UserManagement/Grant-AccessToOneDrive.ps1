@@ -97,7 +97,7 @@ function Write-StageEmphasis {
     Write-Host "[${elapsed}] ${Message}" -ForegroundColor $Color
 }
 
-function Prompt-ForValue {
+function Read-RequiredValue {
     param(
         [Parameter(Mandatory = $true)]
         [string]$PromptText
@@ -138,8 +138,8 @@ function Resolve-UserList {
         return @($resolved | Select-Object -Unique)
     }
 
-    $input = Prompt-ForValue -PromptText $PromptText
-    $parts = @($input -split "," | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $rawInput = Read-RequiredValue -PromptText $PromptText
+    $parts = @($rawInput -split "," | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
     if ($parts.Count -eq 0) {
         throw "At least one user UPN/email address is required."
@@ -253,7 +253,7 @@ function Set-OneDriveSiteCollectionAdminAccess {
 }
 
 if ([string]::IsNullOrWhiteSpace($TargetUserId)) {
-    $TargetUserId = Prompt-ForValue -PromptText "Enter the target user's UPN/email address whose OneDrive should be shared"
+    $TargetUserId = Read-RequiredValue -PromptText "Enter the target user's UPN/email address whose OneDrive should be shared"
 }
 
 $TargetUserId = $TargetUserId.Trim()

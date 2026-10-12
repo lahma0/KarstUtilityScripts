@@ -139,9 +139,6 @@ Business postal code. Maximum length: 40.
 .PARAMETER PreferredLanguage
 RFC 4646 culture format (for example: en-US, es-ES).
 
-.PARAMETER PreferredName
-Preferred/given name used by the person.
-
 .PARAMETER Responsibilities
 JSON array of responsibilities.
 
@@ -274,9 +271,6 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$PreferredLanguage,
-
-    [Parameter(Mandatory = $false)]
-    [string]$PreferredName,
 
     [Parameter(Mandatory = $false)]
     [string]$Responsibilities,
@@ -610,7 +604,7 @@ function Test-PhoneNoExtension {
     return ($Value -match '^\(\d{3}\) \d{3}-\d{4}$')
 }
 
-function Normalize-BoolString {
+function Convert-BoolString {
     param([string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
@@ -625,7 +619,7 @@ function Normalize-BoolString {
     throw "Invalid boolean string"
 }
 
-function Validate-AndConvertFieldValue {
+function Convert-FieldValue {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FieldName,
@@ -759,10 +753,10 @@ function Validate-AndConvertFieldValue {
             }
         }
         "IsSecondaryAccount" {
-            $s = Normalize-BoolString -Value $s
+            $s = Convert-BoolString -Value $s
         }
         "IsHoxhuntDisabled" {
-            $s = Normalize-BoolString -Value $s
+            $s = Convert-BoolString -Value $s
         }
     }
 
@@ -826,7 +820,6 @@ $fields = @(
     [PSCustomObject]@{ Name = "PersonalMobilePhone"; Type = "String"; GraphProperty = $null; CustomSecurityAttribute = "PersonalMobilePhone"; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "PostalCode"; Type = "String"; GraphProperty = "postalCode"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "PreferredLanguage"; Type = "String"; GraphProperty = "preferredLanguage"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
-    [PSCustomObject]@{ Name = "PreferredName"; Type = "String"; GraphProperty = "preferredName"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "Responsibilities"; Type = "String collection"; GraphProperty = "responsibilities"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "Schools"; Type = "String collection"; GraphProperty = "schools"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
     [PSCustomObject]@{ Name = "ShowInAddressList"; Type = "Boolean"; GraphProperty = "showInAddressList"; CustomSecurityAttribute = $null; ExtensionAttribute = $null },
@@ -857,7 +850,7 @@ $graphProperties = @(
     "id", "userPrincipalName", "aboutMe", "birthday", "businessPhones", "city", "companyName", "country", "department",
     "displayName", "employeeHireDate", "employeeLeaveDateTime", "employeeId", "employeeType", "faxNumber", "givenName",
     "interests", "jobTitle", "mobilePhone", "officeLocation", "otherMails", "pastProjects", "postalCode", "preferredLanguage",
-    "preferredName", "responsibilities", "schools", "showInAddressList", "skills", "state", "streetAddress", "surname", "onPremisesExtensionAttributes",
+    "responsibilities", "schools", "showInAddressList", "skills", "state", "streetAddress", "surname", "onPremisesExtensionAttributes",
     "customSecurityAttributes"
 )
 
@@ -972,7 +965,7 @@ foreach ($field in $fields) {
                     break
                 }
 
-                $finalValue = Validate-AndConvertFieldValue -FieldName $fieldName -FieldType $field.Type -InputValue $raw
+                $finalValue = Convert-FieldValue -FieldName $fieldName -FieldType $field.Type -InputValue $raw
                 $changed = $true
                 break
             } catch {
@@ -981,7 +974,7 @@ foreach ($field in $fields) {
         }
     } else {
         try {
-            $finalValue = Validate-AndConvertFieldValue -FieldName $fieldName -FieldType $field.Type -InputValue $providedValue
+            $finalValue = Convert-FieldValue -FieldName $fieldName -FieldType $field.Type -InputValue $providedValue
             $changed = $true
         } catch {
             Write-Host "Provided value for $fieldName is invalid. Exiting." -ForegroundColor Red

@@ -55,6 +55,8 @@ KarstUtilityScripts/
     |   |   |-- Intune/
     |   |   |   `-- UpdateWin32App.md
     |   |   `-- ResetAllMfaAndPasskeysForUser.md
+    |   |-- HcssEquipment360/
+    |   |   `-- CreateNewE360UserAndInstallDesktopApp.md
     |   |-- Migrate Domain-Connected Machine to Intune/
     |   |   |-- MigrateLocalDomainConnectedMachineToIntune.md
     |   |   `-- Save-AzureADUser.ps1
@@ -685,6 +687,12 @@ Companion PowerShell script referenced by `MigrateLocalDomainConnectedMachineToI
 #### `BulksourceConnectorTunnelingInstructions.md`
 
 Guide for securely routing traffic from a remote browser to a local BulkSource Connector application (hardcoded to a localhost WebSocket) using a Cloudflare Zero Trust/WARP tunnel and a loopback port-proxy bridge.
+
+### Admin-HowTo_CheatSheet_Instructions / HcssEquipment360
+
+#### `CreateNewE360UserAndInstallDesktopApp.md`
+
+Step-by-step instructions for creating an HCSS Equipment 360 employee and user account, assigning business units and roles, and setting up the E360 Remote Desktop app on a Windows machine.
 
 ### Checklists
 
